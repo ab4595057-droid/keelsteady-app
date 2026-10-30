@@ -44,6 +44,15 @@ svg{width:100%;height:auto;display:block}
 nav{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:space-around;background:#0e121a;border-top:1px solid var(--line);padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
 nav button{background:none;border:0;color:var(--mut);font:inherit;font-size:12px;display:grid;gap:3px;justify-items:center;padding:4px 18px;border-radius:14px}
 nav button span{font-size:20px}nav button.on{color:#6ea3ff}
+.sw{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.tg{width:52px;height:30px;border-radius:99px;background:#27304a;border:0;position:relative;flex:none}
+.tg::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s}
+.tg.on{background:var(--up)}.tg.on::after{left:25px}
+.chips{display:flex;gap:8px;margin:10px 0}
+.chips button{flex:1;padding:12px 0;border-radius:12px;background:#161d2b;color:var(--tx);border:1px solid var(--line);font:inherit;font-weight:600}
+.chips button.on{background:var(--ac);border-color:var(--ac);color:#fff}
+.go{width:100%;padding:14px;border-radius:14px;border:0;background:var(--ac);color:#fff;font:inherit;font-weight:700;margin-top:4px}
+.warn{background:#2b1f12;border:1px solid #4a3418;color:#f3c98b;border-radius:12px;padding:10px 12px;font-size:13px;margin-top:8px}
 .note{font-size:12px;color:var(--mut);text-align:center;margin:14px 8px}
 </style>
 </head>
@@ -52,13 +61,14 @@ nav button span{font-size:20px}nav button.on{color:#6ea3ff}
 <nav>
  <button data-tab="home"><span>🏠</span>Главная</button>
  <button data-tab="port"><span>💼</span>Портфель</button>
+ <button data-tab="ctl"><span>⚡</span>Торговля</button>
  <button data-tab="me"><span>👤</span>Профиль</button>
 </nav>
 <script>
 const tg = window.Telegram && Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor("#0b0e14"); tg.setBackgroundColor("#0b0e14"); } catch (e) {} }
 const $ = s => document.querySelector(s), app = $("#app");
-let D = null, tab = "home", range = "7", cm = null;
+let D = null, tab = "home", range = "7", cm = null, ctl = null;
 
 const money = (n, sg) => (n < 0 ? "−" : sg ? "+" : "") + "$" + Math.abs(n).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const short = n => { const a = Math.abs(n); return (n < 0 ? "−" : "+") + "$" + (a >= 1000 ? (a / 1000).toFixed(1) + "K" : a.toFixed(a < 10 ? 2 : 0)); };
@@ -107,7 +117,7 @@ function home() {
   for (let d = 1; d <= dim; d++) { const k = `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`, v = dm[k]; if (v) mt += v;
     cells += `<div class="${k === today ? "t" : ""}">${d}${v !== undefined ? `<small class="${cls(v)}">${short(v)}</small>` : ""}</div>`; }
   const mn = new Date(Date.UTC(y, mo, 1)).toLocaleDateString("ru-RU", {month: "long", year: "numeric", timeZone: "UTC"});
-  return `<div class="top"><div class="logo"><i>⚓</i>Keel Steady</div><span class="pill">Виртуальные деньги</span></div>
+  return `<div class="top"><div class="logo"><i>⚓</i>Keel Steady</div><span class="pill">${D.on ? "Торговля вкл · x" + (D.lv || 1) : "Торговля выкл"}</span></div>
   <div class="row"><div class="card"><div class="lbl">Ваши активы</div><div class="big">${money(D.t)}</div></div>
   <div class="card"><div class="lbl">Баланс</div><div class="kv"><span class="lbl">Старт</span><b>${money(D.s)}</b></div><div class="kv"><span class="lbl">Свободно</span><b>${money(D.c)}</b></div></div></div>
   <div class="row"><div class="card"><div class="lbl">Доход за 24ч</div><div class="num ${cls(d24)}">${money(d24, 1)}</div></div>
@@ -126,10 +136,20 @@ function port() {
     return `<div class="card"><div class="coin"><h3>${nm}</h3><span class="badge ${up ? "up" : "dn"}">${up ? "держим" : "вне рынка"}</span></div>
     <div class="kv"><span class="lbl">Цена</span><b>$${px(p)}</b></div><div class="kv"><span class="lbl">SMA200</span><b>$${px(sma)}</b></div>
     <div class="kv"><span class="lbl">От SMA200</span><b class="${cls(diff)}">${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%</b></div>
-    <div class="kv"><span class="lbl">В позиции</span><b>${q > 0 ? q + " ≈ " + money(q * p) : "нет"}</b></div></div>`; }).join("");
-  const trs = D.tr.slice().reverse().map(t => `<div class="tr"><span>${dshort(t[0])} · ${t[2] ? "покупка" : "продажа"} ${t[1]}</span><span>$${px(t[3])}${t[5] != null ? ` <b class="${cls(t[5])}">${short(t[5])}</b>` : ""}</span></div>`).join("");
+    <div class="kv"><span class="lbl">В позиции</span><b>${q > 0 ? q + " ≈ " + money(c[5]) + (c[6] > 1 ? " · x" + c[6] : "") : "нет"}</b></div></div>`; }).join("");
+  const trs = D.tr.slice().reverse().map(t => `<div class="tr"><span>${dshort(t[0])} · ${["продажа", "покупка", "ликвидация"][t[2]]} ${t[1]}</span><span>$${px(t[3])}${t[5] != null ? ` <b class="${cls(t[5])}">${t[5] >= 0 ? "+" : "−"}${Math.abs(t[5])}%</b>` : ""}</span></div>`).join("");
   return `<div class="top"><h2>Портфель</h2><span class="pill">Виртуальные деньги</span></div>${coins}
   <div class="card"><h2>История сделок</h2>${trs || '<p class="muted">Сделок пока нет.</p>'}${D.nt > D.tr.length ? `<p class="muted" style="margin-top:8px">Показаны последние ${D.tr.length} из ${D.nt}. Полная история есть в боте.</p>` : ""}</div>`;
+}
+
+function ctrl() {
+  const ch = ctl.on !== !!D.on || ctl.lv !== (D.lv || 1), L = ctl.lv;
+  return `<div class="top"><h2>Торговля</h2><span class="pill">Виртуальные деньги</span></div>
+  <div class="card"><div class="sw"><div><b>Торговля ${ctl.on ? "включена" : "выключена"}</b><div class="muted">${ctl.on ? "Бот открывает и закрывает виртуальные позиции по сигналам." : "Все позиции будут закрыты, новые не открываются."}</div></div><button class="tg ${ctl.on ? "on" : ""}" data-on="1" aria-label="Включить или выключить торговлю"></button></div></div>
+  <div class="card"><h2>Плечо</h2><div class="chips">${[1, 2, 3, 5].map(x => `<button data-lv="${x}" class="${L === x ? "on" : ""}">x${x}</button>`).join("")}</div>
+  ${L > 1 ? `<div class="warn">Плечо увеличивает и прибыль, и убыток. При x${L} падение цены примерно на ${Math.round(100 / L)}% сжигает весь залог позиции (ликвидация). Сигнал проверяется раз в сутки, поэтому резкое падение может случиться раньше выхода.</div>` : '<p class="muted">x1: без плеча.</p>'}
+  <p class="muted" style="margin-top:8px">Новое плечо действует на новые позиции. Открытые позиции остаются с прежним плечом.</p></div>
+  ${ch ? '<button class="go" data-save="1">Сохранить в боте</button>' : ""}`;
 }
 
 function me() {
@@ -143,7 +163,7 @@ function me() {
 function render() {
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   if (!D) return;
-  app.innerHTML = (tab === "home" ? home() : tab === "port" ? port() : me()) + '<p class="note">Это не финансовый совет. Результаты виртуальной торговли не гарантируют прибыль.</p>';
+  app.innerHTML = (tab === "home" ? home() : tab === "port" ? port() : tab === "ctl" ? ctrl() : me()) + '<p class="note">Это не финансовый совет. Результаты виртуальной торговли не гарантируют прибыль.</p>';
 }
 
 document.addEventListener("click", e => {
@@ -151,6 +171,13 @@ document.addEventListener("click", e => {
   if (b.dataset.tab) { tab = b.dataset.tab; window.scrollTo(0, 0); }
   else if (b.dataset.r) range = b.dataset.r;
   else if (b.dataset.m) { cm[1] += +b.dataset.m; if (cm[1] < 0) { cm[1] = 11; cm[0]--; } if (cm[1] > 11) { cm[1] = 0; cm[0]++; } }
+  else if (b.dataset.on) ctl.on = !ctl.on;
+  else if (b.dataset.lv) ctl.lv = +b.dataset.lv;
+  else if (b.dataset.save) {
+    if (tg && tg.sendData) tg.sendData(JSON.stringify({on: ctl.on, lev: ctl.lv}));
+    else alert("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    return;
+  }
   else return;
   render();
 });
@@ -160,6 +187,7 @@ document.addEventListener("click", e => {
   if (!q) { app.innerHTML = '<div class="card"><h2>Откройте приложение из бота</h2><p class="muted">Нажмите «📱 Приложение» в чате с ботом Keel Steady.</p></div>'; return; }
   try { D = await decode(q); } catch (e) { app.innerHTML = '<div class="card"><h2>Не удалось прочитать данные</h2><p class="muted">Обновите Telegram и снова нажмите «📱 Приложение» в боте.</p></div>'; return; }
   const l = D.e[D.e.length - 1][0].split("-"); cm = [+l[0], +l[1] - 1];
+  ctl = {on: !!D.on, lv: D.lv || 1};
   render();
 })();
 </script>
