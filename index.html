@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Keel Steady</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script async src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 :root{--bg:#0b0e14;--card:#121722;--line:#1f2735;--tx:#e8ecf3;--mut:#8b95a7;--up:#22c58b;--dn:#f0576a;--ac:#3b82f6;color-scheme:dark}
 *{box-sizing:border-box;margin:0}
@@ -62,7 +62,7 @@ nav button span{font-size:20px}nav button.on{color:#6ea3ff}
 </style>
 </head>
 <body>
-<main id="app"></main>
+<main id="app"><p class="note">Загружаю данные…</p></main>
 <nav>
  <button data-tab="home"><span>🏠</span>Главная</button>
  <button data-tab="port"><span>💼</span>Портфель</button>
@@ -70,8 +70,13 @@ nav button span{font-size:20px}nav button.on{color:#6ea3ff}
  <button data-tab="me"><span>👤</span>Профиль</button>
 </nav>
 <script>
-const tg = window.Telegram && Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor("#0b0e14"); tg.setBackgroundColor("#0b0e14"); } catch (e) {} }
+const T = () => window.Telegram && Telegram.WebApp;
+try {  // сообщаем Telegram, что страница готова, не дожидаясь telegram-web-app.js
+  if (window.TelegramWebviewProxy) TelegramWebviewProxy.postEvent("web_app_ready", "{}");
+  else if (window.parent !== window) parent.postMessage(JSON.stringify({eventType: "web_app_ready", eventData: {}}), "*");
+} catch (e) {}
+const init = () => { const w = T(); if (w) { w.ready(); w.expand(); try { w.setHeaderColor("#0b0e14"); w.setBackgroundColor("#0b0e14"); } catch (e) {} } };
+init(); window.addEventListener("load", init);
 const $ = s => document.querySelector(s), app = $("#app");
 let base = "", D = null, tab = "home", range = "7", cm = null, ctl = null;
 
@@ -172,7 +177,7 @@ function ctrl() {
 }
 
 function me() {
-  const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user || {}, nm = [u.first_name, u.last_name].filter(Boolean).join(" ") || "Участник";
+  const u = T() && T().initDataUnsafe && T().initDataUnsafe.user || {}, nm = [u.first_name, u.last_name].filter(Boolean).join(" ") || "Участник";
   return `<div class="top"><h2>Профиль</h2></div><div class="card me"><div class="av">${u.photo_url ? `<img src="${u.photo_url}" alt="">` : nm[0]}</div><div><b>${nm}</b><div class="muted">${u.username ? "@" + u.username : ""}</div></div></div>
   <div class="card"><h2>Мои монеты</h2><p class="muted">${D.p.map(c => c[0]).join(", ")}. Изменить выбор можно в боте, кнопка «⚙️ Профиль».</p></div>
   <div class="card"><h2>Как это работает</h2><p class="muted">«По тренду»: бот держит монету, пока цена выше средней за 200 дней, и выходит, когда она ниже. «На просадке»: бот покупает после резкого падения и закрывает сделку, когда заработает выбранный процент. Все сделки виртуальные: настоящих денег и сделок на бирже нет.</p></div>
@@ -197,7 +202,7 @@ document.addEventListener("click", e => {
   else if (b.dataset.tp) ctl.tp = +b.dataset.tp;
   else if (b.dataset.sl !== undefined) ctl.sl = +b.dataset.sl;
   else if (b.dataset.save) {
-    if (tg && tg.sendData) tg.sendData(JSON.stringify({on: ctl.on, lev: ctl.lv, mode: ctl.md, buy: ctl.buy, tp: ctl.tp, sl: ctl.sl}));
+    if (T() && T().sendData) T().sendData(JSON.stringify({on: ctl.on, lev: ctl.lv, mode: ctl.md, buy: ctl.buy, tp: ctl.tp, sl: ctl.sl}));
     else alert("Откройте приложение из Telegram, кнопкой в чате с ботом.");
     return;
   }
