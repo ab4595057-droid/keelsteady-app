@@ -42,7 +42,7 @@ svg{width:100%;height:auto;display:block}
 .av{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#27344f,#3b82f6);display:grid;place-items:center;font-size:22px;font-weight:700;overflow:hidden}
 .av img{width:100%;height:100%;object-fit:cover}
 nav{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:space-around;background:#0e121a;border-top:1px solid var(--line);padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
-nav button{background:none;border:0;color:var(--mut);font:inherit;font-size:12px;display:grid;gap:3px;justify-items:center;padding:4px 18px;border-radius:14px}
+nav button{background:none;border:0;color:var(--mut);font:inherit;font-size:12px;display:grid;gap:3px;justify-items:center;padding:4px 10px;border-radius:14px}
 nav button span{font-size:20px}nav button.on{color:#6ea3ff}
 .sw{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .tg{width:52px;height:30px;border-radius:99px;background:#27304a;border:0;position:relative;flex:none}
@@ -56,6 +56,9 @@ nav button span{font-size:20px}nav button.on{color:#6ea3ff}
 .mode.on{border-color:var(--ac);background:#14203a}
 .hint{font-size:13px;color:var(--mut);margin:10px 0 2px}
 .sum{background:#14203a;border:1px solid #243a63;border-radius:12px;padding:10px 12px;font-size:14px;margin-top:10px}
+.inp{width:100%;padding:13px 12px;border-radius:12px;background:#0e121a;border:1px solid var(--line);color:var(--tx);font:inherit;margin-top:8px}
+.steps{margin:8px 0 0 18px;color:var(--mut);font-size:13px}.steps li{margin-top:5px}
+.go.red{background:#3a1b22;color:#f0576a}
 .go{width:100%;padding:14px;border-radius:14px;border:0;background:var(--ac);color:#fff;font:inherit;font-weight:700;margin-top:4px}
 .warn{background:#2b1f12;border:1px solid #4a3418;color:#f3c98b;border-radius:12px;padding:10px 12px;font-size:13px;margin-top:8px}
 .note{font-size:12px;color:var(--mut);text-align:center;margin:14px 8px}
@@ -67,6 +70,7 @@ nav button span{font-size:20px}nav button.on{color:#6ea3ff}
  <button data-tab="home"><span>🏠</span>Главная</button>
  <button data-tab="port"><span>💼</span>Портфель</button>
  <button data-tab="ctl"><span>⚡</span>Торговля</button>
+ <button data-tab="ex"><span>🔗</span>Биржа</button>
  <button data-tab="me"><span>👤</span>Профиль</button>
 </nav>
 <script>
@@ -176,6 +180,18 @@ function ctrl() {
   ${ch ? '<button class="go" data-save="1">Сохранить в боте</button><p class="note">После сохранения приложение закроется, а бот подтвердит настройки в чате.</p>' : ""}`;
 }
 
+function exch() {
+  const e = D.ex || {st: 0};
+  return `<div class="top"><h2>Биржа</h2><span class="pill">Bybit</span></div>
+  <div class="card"><div class="sw"><div><b>Bybit</b><div class="muted">${e.st ? "Подключено · ключ " + e.kp + (e.d ? " · проверен " + e.d : "") : "Не подключено"}</div></div><span class="badge ${e.st ? "up" : "dn"}">${e.st ? "подключено" : "нет"}</span></div></div>
+  ${e.st ? '<div class="card"><p class="muted">Ключ проверен, права вывода средств у него нет. Если отключите биржу, ключ будет удалён из бота.</p><button class="go red" data-dx="1">Отключить Bybit</button></div>' : `<div class="card"><h2>Как подключить</h2>
+  <ol class="steps"><li>В Bybit откройте профиль, затем «API» и создайте ключ (System-generated).</li><li>Права: только торговля (Spot). <b>Вывод средств не включайте.</b> Ключ с правом вывода бот не примет.</li><li>Если Bybit предложит привязать IP, укажите IP бота (его сообщит владелец бота).</li><li>Скопируйте API Key и API Secret и вставьте ниже.</li></ol>
+  <input class="inp" id="ak" placeholder="API Key" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <input class="inp" id="as" type="password" placeholder="API Secret" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button class="go" data-cx="1" style="margin-top:12px">Подключить Bybit</button></div>`}
+  <div class="warn">Сейчас торговля остаётся виртуальной: подключение только проверяет ключ, реальных сделок бот не делает. Секрет хранится в зашифрованном виде на компьютере бота. Никому не показывайте ключи и не присылайте их в чат.</div>`;
+}
+
 function me() {
   const u = T() && T().initDataUnsafe && T().initDataUnsafe.user || {}, nm = [u.first_name, u.last_name].filter(Boolean).join(" ") || "Участник";
   return `<div class="top"><h2>Профиль</h2></div><div class="card me"><div class="av">${u.photo_url ? `<img src="${u.photo_url}" alt="">` : nm[0]}</div><div><b>${nm}</b><div class="muted">${u.username ? "@" + u.username : ""}</div></div></div>
@@ -187,7 +203,7 @@ function me() {
 function render() {
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   if (!D) return;
-  app.innerHTML = (tab === "home" ? home() : tab === "port" ? port() : tab === "ctl" ? ctrl() : me()) + '<p class="note">Это не финансовый совет. Результаты виртуальной торговли не гарантируют прибыль.</p>';
+  app.innerHTML = (tab === "home" ? home() : tab === "port" ? port() : tab === "ctl" ? ctrl() : tab === "ex" ? exch() : me()) + '<p class="note">Это не финансовый совет. Результаты виртуальной торговли не гарантируют прибыль.</p>';
 }
 
 document.addEventListener("click", e => {
@@ -201,6 +217,17 @@ document.addEventListener("click", e => {
   else if (b.dataset.buy) ctl.buy = +b.dataset.buy;
   else if (b.dataset.tp) ctl.tp = +b.dataset.tp;
   else if (b.dataset.sl !== undefined) ctl.sl = +b.dataset.sl;
+  else if (b.dataset.cx) {
+    const k = document.getElementById("ak").value.trim(), sc = document.getElementById("as").value.trim();
+    if (!/^[A-Za-z0-9]{8,64}$/.test(k) || !/^[A-Za-z0-9]{16,128}$/.test(sc)) { alert("Проверьте ключи: они состоят из букв и цифр, без пробелов."); return; }
+    if (T() && T().sendData) T().sendData(JSON.stringify({a: "connect", k, s: sc}));
+    else alert("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    return;
+  }
+  else if (b.dataset.dx) {
+    if (T() && T().sendData) T().sendData(JSON.stringify({a: "disconnect"}));
+    return;
+  }
   else if (b.dataset.save) {
     if (T() && T().sendData) T().sendData(JSON.stringify({on: ctl.on, lev: ctl.lv, mode: ctl.md, buy: ctl.buy, tp: ctl.tp, sl: ctl.sl}));
     else alert("Откройте приложение из Telegram, кнопкой в чате с ботом.");
@@ -214,6 +241,7 @@ document.addEventListener("click", e => {
   const q = new URLSearchParams(location.search).get("d");
   if (!q) { app.innerHTML = '<div class="card"><h2>Откройте приложение из бота</h2><p class="muted">Нажмите «📱 Приложение» в чате с ботом Keel Steady.</p></div>'; return; }
   try { D = await decode(q); } catch (e) { app.innerHTML = '<div class="card"><h2>Не удалось прочитать данные</h2><p class="muted">Обновите Telegram и снова нажмите «📱 Приложение» в боте.</p></div>'; return; }
+  if (!D.e || !D.e.length) D.e = [[new Date().toISOString().slice(0, 10), D.t]];
   const l = D.e[D.e.length - 1][0].split("-"); cm = [+l[0], +l[1] - 1];
   ctl = mk(D); base = JSON.stringify(ctl);
   render();
