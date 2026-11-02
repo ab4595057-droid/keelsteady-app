@@ -239,76 +239,72 @@ const esc = t => String(t).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;",
 const fix = o => { if (o.ind > o.ov) o.ind = o.ov; };
 const planOf = o => { const n = o.n, w = Array.from({length: n}, (_, k) => Math.pow(1 + o.mart / 100, k)), sum = w.reduce((a, b) => a + b, 0);
   return {sizes: w.map(x => o.dep * x / sum), lv: n === 1 ? [] : n === 2 ? [o.ov] : Array.from({length: n - 1}, (_, k) => o.ind + (o.ov - o.ind) * k / (n - 2))}; };
-let ws = 0;
-const mkF = o => { const f = o.fv || {}; return {m: f.m || "off", lev: f.lev || 3, per: f.per || 10, coins: (f.coins || ["BTC"]).slice(), buy: f.buy || 5, tp: f.tp || 1, sl: f.sl === 0 ? 0 : f.sl || 10}; };
+
+const mkF = o => { const f = o.fv || {}, c = f.dc || {}; return {nm: f.nm || "Фьючерсный бот", dep: f.dep || 20, tf: !!f.tf, sa: !!f.sa, ssl: !!f.ssl, n: c.n || 1, ov: c.overlap || 10, ind: c.indent || 1, mart: c.mart || 0, m: f.m || "off", lev: f.lev || 3, coins: (f.coins || ["BTC"]).slice(), buy: f.buy || 5, tp: f.tp || 1, sl: f.sl === 0 ? 0 : f.sl || 10}; };
 const stp = (sc, k, label, v) => { const [lo, hi, st] = RNG[k]; return `<div class="hint">${label}</div><div class="stp"><button data-st="${sc}:${k}:${-st}">−</button><input class="inp" type="number" inputmode="decimal" min="${lo}" max="${hi}" step="${st}" value="${v}" data-nv="${sc}:${k}"><button data-st="${sc}:${k}:${st}">+</button></div>`; };
 const chipSet = (sc, k, opts, cur, f, cl = "") => `<div class="chips ${cl}">${opts.map(x => `<button data-set="${sc}:${k}:${x}" class="${cur === x ? "on" : ""}">${f(x)}</button>`).join("")}</div>`;
 const coinChips = (sc, list) => `<div class="chips wrap c3">${ALL().map(n => `<button data-co="${sc}:${n}" class="${list.includes(n) ? "on" : ""}">${n}</button>`).join("")}</div>`;
 const slText = x => x ? "−" + x + "%" : "Нет";
 
+const W = {s: 0, f: 0}, STEPS = ["Название", "Биржа", "Пара", "Депозит", "Вход", "Ордера", "Выход"];
+
 function spotMsg() {
   return {on: ctl.on, lev: D.lv || 1, mode: ctl.md, buy: ctl.buy, tp: ctl.tp, sl: ctl.sl, coins: ctl.cs, name: ctl.nm, dep: ctl.dep, n: ctl.n, overlap: ctl.ov, indent: ctl.ind, mart: ctl.mart, tf: ctl.tf, sa: ctl.sa, ssl: ctl.ssl};
 }
 
-function spotPanel() {
-  const dip = ctl.md === "dip", ex = D.ex || {st: 0}, pl = planOf(ctl), total = ctl.dep * ctl.cs.length, bal = D.rl && D.rl.bal != null ? D.rl.bal : null;
-  const bad = dip && pl.sizes[0] < 1 ? "Первый ордер меньше 1 USDT: биржа его не примет. Увеличьте депозит или уменьшите число ордеров и мартингейл." : total > 100 ? "Сумма депозитов по всем парам больше 100 USDT (общий потолок). Уменьшите депозит или число пар." : "";
-  const dot = (i, t) => `<button data-wz="${i}" class="${ws === i ? "on" : i < ws ? "ok" : ""}"><i>${i < ws ? "✓" : i + 1}</i>${t}</button>`;
-  const tgl = (key, on, label, hint, dis) => `<div class="sw" style="margin-top:12px"><div><b style="font-size:14px">${label}</b><div class="muted">${hint}</div></div><button class="tg ${on ? "on" : ""} ${dis ? "dis" : ""}" ${dis ? "disabled" : `data-tg="s:${key}"`}></button></div>`;
-  const card = (id, t, d) => `<button class="mode ${ctl.md === id ? "on" : ""}" data-set="s:md:${id}"><b>${t}</b><span>${d}</span></button>`;
-  let body = "";
-  if (ws === 0) body = `<h2>Название бота</h2><p class="muted">Так бот будет называться в приложении и сообщениях.</p><input class="inp" maxlength="24" value="${esc(ctl.nm)}" data-nm="1" placeholder="Название бота">`;
-  else if (ws === 1) body = `<h2>Биржа</h2><div class="kv"><span class="lbl">Bybit</span><b class="${ex.st ? "up" : "dn"}">${ex.st ? "ключ " + esc(ex.kp) + " подключён" : "не подключено"}</b></div>
-    ${ex.st ? "" : '<button class="ghost" data-tab="ex" style="margin-top:10px">Подключить Bybit</button>'}
-    <div class="hint">Тип торговли</div><div class="chips"><button class="on">LONG</button><button disabled>SHORT · скоро</button></div><p class="muted">LONG: бот покупает монету и продаёт дороже. Торговля идёт на споте Bybit, без плеча.</p>`;
-  else if (ws === 2) body = `<h2>Пара</h2><p class="muted">Монеты (к USDT), на которых бот будет торговать. Для каждой пары свой депозит.</p>${coinChips("s", ctl.cs)}`;
-  else if (ws === 3) body = `<h2>Депозит</h2>${stp("s", "dep", "Депозит на каждую пару, USDT", ctl.dep)}
-    <div class="kv"><span class="lbl">Монет: ${ctl.cs.length}, всего в работе до</span><b>${money(total)}</b></div>
-    <div class="kv"><span class="lbl">Баланс на бирже</span><b>${bal == null ? "—" : money(bal)}</b></div>
-    ${tgl("re", false, "Реинвест", "Прибыль добавляется к депозиту. Скоро.", true)}<div class="warn">Пока общий потолок суммы в сделках 100 USDT на человека.</div>`;
-  else if (ws === 4) body = `<h2>Условия входа</h2>${card("dip", "На просадке: активнее", "Бот покупает, когда цена упала на выбранный процент за сутки. Проверка каждые 5 минут.")}
-    ${card("trend", "По тренду: спокойнее", "Бот держит монету, пока цена выше средней за 200 дней, и выходит, когда рост заканчивается. Проверка раз в сутки.")}
-    ${dip ? stp("s", "buy", "Покупать, если цена упала за сутки на, %", ctl.buy) + tgl("tf", ctl.tf, "Только в тренде", "Не покупать просадку, если цена ниже средней за 200 дней.") : ""}`;
-  else if (ws === 5) body = !dip ? `<h2>Ордера</h2><p class="muted">В режиме «по тренду» бот входит одним ордером на весь депозит. Сетка ордеров нужна только для режима «на просадке».</p>` :
-    `<h2>Сетка ордеров</h2><p class="muted">Первый ордер на входе, остальные бот докупает, если цена продолжает падать.</p>
-    <div class="hint">Количество ордеров (1 = без докупок)</div>${chipSet("s", "n", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ctl.n, x => x, "wrap")}
-    ${ctl.n > 1 ? stp("s", "ov", "Перекрытие: на сколько % от входа растянута сетка", ctl.ov) + stp("s", "ind", "Отступ: просадка до первой докупки, %", ctl.ind) + stp("s", "mart", "Мартингейл: каждый следующий ордер больше на, %", ctl.mart) : ""}
-    <div class="hint">Ордера бота</div>${pl.sizes.map((x, k) => `<div class="tr"><span>№${k + 1} · ${k ? "при падении на " + pl.lv[k - 1].toFixed(1) + "%" : "вход"}</span><b>${money(x)}</b></div>`).join("")}
-    ${ctl.mart > 0 && ctl.n > 1 ? '<div class="warn">Мартингейл увеличивает ордера на падающем рынке: если цена не вернётся, потери растут. Задайте стоп-лосс.</div>' : ""}`;
-  else if (ws === 6) body = `<h2>Выход из сделки</h2>${stp("s", "tp", "Тейк-профит: продавать при прибыли, %", ctl.tp)}
-    ${tgl("slon", ctl.sl > 0, "Стоп-лосс", "Закрыть сделку, если убыток достиг порога.")}${ctl.sl > 0 ? stp("s", "sl", "Стоп-лосс, % убытка от вложенной суммы", ctl.sl) : '<div class="warn">Без стоп-лосса сделка может долго оставаться в минусе.</div>'}
-    ${tgl("sa", ctl.sa, "Остановить бота после завершения сделки", "После закрытия сделки бот больше не открывает новых.")}
-    ${ctl.sl > 0 ? tgl("ssl", ctl.ssl, "Остановить бота после стоп-лосса", "Если сработал стоп-лосс, бот выключается.") : ""}`;
-  else body = `<h2>Запуск</h2><div class="sum">${esc(ctl.nm)}: ${dip ? `покупка при просадке ${ctl.buy}%${ctl.tf ? " (только в тренде)" : ""}, сетка из ${ctl.n} ордеров${ctl.n > 1 ? " (перекрытие " + ctl.ov + "%, отступ " + ctl.ind + "%, мартингейл " + ctl.mart + "%)" : ""}, продажа при росте на ${ctl.tp}%, ${ctl.sl ? "стоп-лосс −" + ctl.sl + "%" : "без стоп-лосса"}` : "держит монеты, пока цена выше средней за 200 дней"}. Монеты: ${ctl.cs.join(", ")}, депозит ${ctl.dep} USDT на пару.</div>
-    ${bad ? `<div class="warn">${bad}</div>` : ""}
-    <button class="ghost" data-bt="1" style="margin-top:12px" ${bad ? "disabled" : ""}>Протестировать на истории</button>
-    <p class="muted" style="margin-top:6px">Бот скачает цены за последние недели и покажет в чате, как правила сработали бы раньше.</p>
-    <button class="go" data-sv="s" style="margin-top:12px" ${bad ? "disabled" : ""}>Сохранить бота</button>
-    ${tgl("on", ctl.on, "Демо-счёт: торговля", "Бот торгует на виртуальные деньги по этим правилам.")}
-    <p class="muted" style="margin-top:12px">Реальная торговля на вашем Bybit включается на вкладке «Биржа».</p>`;
-  const nav = `<div class="wzn">${ws > 0 ? '<button class="ghost" data-wz="' + (ws - 1) + '">Назад</button>' : ""}${ws < 7 ? '<button class="go" style="margin-top:0" data-wz="' + (ws + 1) + '">Далее</button>' : ""}</div>`;
-  return `<div class="card"><div class="wz">${STEPS.concat(["Запуск"]).map((t, i) => dot(i, t)).join("")}</div>${body}<div style="margin-top:14px">${nav}</div></div>${JSON.stringify(ctl) !== base ? '<p class="note">Есть несохранённые изменения. Нажмите «Сохранить бота» на шаге «Запуск».</p>' : ""}`;
+function futMsg() {
+  return {a: "fut", m: fc.m, lev: fc.lev, coins: fc.coins, name: fc.nm, dep: fc.dep, n: fc.n, overlap: fc.ov, indent: fc.ind, mart: fc.mart, tf: fc.tf, sa: fc.sa, ssl: fc.ssl, buy: fc.buy, tp: fc.tp, sl: fc.sl};
 }
 
-const STEPS = ["Название", "Биржа", "Пара", "Депозит", "Вход", "Ордера", "Выход"];
+function wizard(sc) {
+  const fut = sc === "f", o = fut ? fc : ctl, cl = fut ? o.coins : o.cs, ws = W[sc], dip = fut || o.md === "dip", ex = D.ex || {st: 0};
+  const pl = planOf(o), total = o.dep * cl.length, bal = D.rl && D.rl.bal != null ? D.rl.bal : null, L = o.lev;
+  const bad = dip && pl.sizes[0] < 1 ? "Первый ордер меньше 1 USDT: биржа его не примет. Увеличьте депозит или уменьшите число ордеров и мартингейл." : total > 100 ? "Сумма депозитов по всем парам больше 100 USDT (общий потолок). Уменьшите депозит или число пар." : "";
+  const dot = (i, t) => `<button data-wz="${sc}:${i}" class="${ws === i ? "on" : i < ws ? "ok" : ""}"><i>${i < ws ? "✓" : i + 1}</i>${t}</button>`;
+  const tgl = (key, on, label, hint, dis) => `<div class="sw" style="margin-top:12px"><div><b style="font-size:14px">${label}</b><div class="muted">${hint}</div></div><button class="tg ${on ? "on" : ""} ${dis ? "dis" : ""}" ${dis ? "disabled" : `data-tg="${sc}:${key}"`}></button></div>`;
+  const card = (id, t, d) => `<button class="mode ${o.md === id ? "on" : ""}" data-set="s:md:${id}"><b>${t}</b><span>${d}</span></button>`;
+  let body = "";
+  if (ws === 0) body = `<h2>Название бота</h2><p class="muted">Так бот будет называться в приложении и сообщениях.</p><input class="inp" maxlength="24" value="${esc(o.nm)}" data-nm="${sc}" placeholder="Название бота">`;
+  else if (ws === 1) body = `<h2>Биржа</h2><div class="kv"><span class="lbl">Bybit</span><b class="${ex.st ? "up" : "dn"}">${ex.st ? "ключ " + esc(ex.kp) + " подключён" : "не подключено"}</b></div>
+    ${ex.st ? "" : '<button class="ghost" data-tab="ex" style="margin-top:10px">Подключить Bybit</button>'}
+    <div class="hint">Тип торговли</div><div class="chips"><button class="on">LONG</button><button disabled>SHORT · скоро</button></div>
+    ${fut ? `<div class="hint">Режим фьючерсов</div><div class="chips"><button data-set="f:m:off" class="${o.m === "off" ? "on" : ""}">Выкл</button><button data-set="f:m:dry" class="${o.m === "dry" ? "on" : ""}">Демо</button><button disabled>Реальный · скоро</button></div><p class="muted">Демо: фьючерсы на виртуальные деньги демо-счёта. Реальные фьючерсы включим после проверки торговли на споте.</p>` : '<p class="muted">LONG: бот покупает монету и продаёт дороже. Торговля идёт на споте Bybit, без плеча.</p>'}`;
+  else if (ws === 2) body = `<h2>Пара</h2><p class="muted">Монеты (к USDT), на которых бот будет торговать. Для каждой пары свой ${fut ? "залог" : "депозит"}.</p>${coinChips(sc, cl)}`;
+  else if (ws === 3) body = `<h2>${fut ? "Депозит и плечо" : "Депозит"}</h2>${stp(sc, "dep", fut ? "Залог на каждую пару, USDT" : "Депозит на каждую пару, USDT", o.dep)}
+    <div class="kv"><span class="lbl">Монет: ${cl.length}, ${fut ? "залог" : "всего в работе"} до</span><b>${money(total)}</b></div>
+    ${fut ? `<div class="kv"><span class="lbl">Объём сделок с плечом до</span><b>${money(total * L)}</b></div>` : `<div class="kv"><span class="lbl">Баланс на бирже</span><b>${bal == null ? "—" : money(bal)}</b></div>`}
+    ${fut ? `<div class="hint">Плечо</div>${chipSet("f", "lev", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], o.lev, x => "x" + x, "wrap")}${L > 1 ? `<div class="warn">При x${L} падение цены примерно на ${(100 / L).toFixed(1)}% ликвидирует позицию: весь залог сгорит. Цена может «проскочить» стоп-лосс.</div>` : '<p class="muted">x1: без плеча, ликвидации нет.</p>'}` : tgl("re", false, "Реинвест", "Прибыль добавляется к депозиту. Скоро.", true)}
+    <div class="warn">Пока общий потолок суммы в сделках 100 USDT на человека.</div>`;
+  else if (ws === 4) body = `<h2>Условия входа</h2>${fut ? '<p class="muted">Фьючерсный бот покупает (long) на просадке.</p>' : card("dip", "На просадке: активнее", "Бот покупает, когда цена упала на выбранный процент за сутки. Проверка каждые 5 минут.") + card("trend", "По тренду: спокойнее", "Бот держит монету, пока цена выше средней за 200 дней, и выходит, когда рост заканчивается. Проверка раз в сутки.")}
+    ${dip ? stp(sc, "buy", "Покупать, если цена упала за сутки на, %", o.buy) + tgl("tf", o.tf, "Только в тренде", "Не покупать просадку, если цена ниже средней за 200 дней.") : ""}`;
+  else if (ws === 5) body = !dip ? `<h2>Ордера</h2><p class="muted">В режиме «по тренду» бот входит одним ордером на весь депозит. Сетка нужна только для режима «на просадке».</p>` :
+    `<h2>Сетка ордеров</h2><p class="muted">Первый ордер на входе, остальные бот докупает, если цена продолжает падать.</p>
+    <div class="hint">Количество ордеров (1 = без докупок)</div>${chipSet(sc, "n", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], o.n, x => x, "wrap")}
+    ${o.n > 1 ? stp(sc, "ov", "Перекрытие: на сколько % от входа растянута сетка", o.ov) + stp(sc, "ind", "Отступ: просадка до первой докупки, %", o.ind) + stp(sc, "mart", "Мартингейл: каждый следующий ордер больше на, %", o.mart) : ""}
+    <div class="hint">Ордера бота${fut ? " (залог)" : ""}</div>${pl.sizes.map((x, k) => `<div class="tr"><span>№${k + 1} · ${k ? "при падении на " + pl.lv[k - 1].toFixed(1) + "%" : "вход"}</span><b>${money(x)}</b></div>`).join("")}
+    ${o.mart > 0 && o.n > 1 ? '<div class="warn">Мартингейл увеличивает ордера на падающем рынке: если цена не вернётся, потери растут' + (fut ? " (с плечом ещё быстрее)" : "") + ". Задайте стоп-лосс.</div>" : ""}`;
+  else if (ws === 6) body = `<h2>Выход из сделки</h2>${stp(sc, "tp", fut ? "Тейк-профит: закрывать при прибыли на залог, %" : "Тейк-профит: продавать при прибыли, %", o.tp)}
+    ${tgl("slon", o.sl > 0, "Стоп-лосс", "Закрыть сделку, если убыток достиг порога.")}${o.sl > 0 ? stp(sc, "sl", fut ? "Стоп-лосс, % убытка от залога" : "Стоп-лосс, % убытка от вложенной суммы", o.sl) : '<div class="warn">Без стоп-лосса сделка может долго оставаться в минусе.</div>'}
+    ${tgl("sa", o.sa, "Остановить бота после завершения сделки", "После закрытия сделки бот больше не открывает новых.")}
+    ${o.sl > 0 ? tgl("ssl", o.ssl, "Остановить бота после стоп-лосса", "Если сработал стоп-лосс, бот выключается.") : ""}`;
+  else body = `<h2>Запуск</h2><div class="sum">${esc(o.nm)}: ${dip ? `${fut ? "фьючерсы x" + L + ", " : ""}покупка при просадке ${o.buy}%${o.tf ? " (только в тренде)" : ""}, сетка из ${o.n} ордеров${o.n > 1 ? " (перекрытие " + o.ov + "%, отступ " + o.ind + "%, мартингейл " + o.mart + "%)" : ""}, ${fut ? "закрытие при прибыли +" + o.tp + "% на залог" : "продажа при росте на " + o.tp + "%"}, ${o.sl ? "стоп-лосс −" + o.sl + "%" : "без стоп-лосса"}` : "держит монеты, пока цена выше средней за 200 дней"}. Монеты: ${cl.join(", ")}, ${fut ? "залог" : "депозит"} ${o.dep} USDT на пару.</div>
+    ${bad ? `<div class="warn">${bad}</div>` : ""}
+    <button class="ghost" data-bt="${sc}" style="margin-top:12px" ${bad ? "disabled" : ""}>Протестировать на истории</button>
+    <p class="muted" style="margin-top:6px">Бот скачает цены за последние недели и покажет в чате, как правила сработали бы раньше${fut ? ", с плечом и ликвидациями" : ""}.</p>
+    <button class="go" data-sv="${sc}" style="margin-top:12px" ${bad ? "disabled" : ""}>Сохранить бота</button>
+    ${fut ? tgl("m", o.m === "dry", "Демо-счёт: фьючерсы", "Бот торгует фьючерсами на виртуальные деньги по этим правилам.") + '<p class="muted" style="margin-top:12px">Реальные фьючерсы пока недоступны.</p>'
+      : tgl("on", o.on, "Демо-счёт: торговля", "Бот торгует на виртуальные деньги по этим правилам.") + '<p class="muted" style="margin-top:12px">Реальная торговля на вашем Bybit включается на вкладке «Биржа».</p>'}`;
+  const nav = `<div class="wzn">${ws > 0 ? `<button class="ghost" data-wz="${sc}:${ws - 1}">Назад</button>` : ""}${ws < 7 ? `<button class="go" style="margin-top:0" data-wz="${sc}:${ws + 1}">Далее</button>` : ""}</div>`;
+  const dirty = JSON.stringify(o) !== (fut ? fbase : base);
+  return `<div class="card"><div class="wz">${STEPS.concat(["Запуск"]).map((t, i) => dot(i, t)).join("")}</div>${body}<div style="margin-top:14px">${nav}</div></div>${dirty ? '<p class="note">Есть несохранённые изменения. Нажмите «Сохранить бота» на шаге «Запуск».</p>' : ""}`;
+}
+
+const spotPanel = () => wizard("s");
 
 function futPanel() {
-  const L = fc.lev, ch = JSON.stringify(fc) !== fbase, liq = (100 / L).toFixed(1), move = (fc.tp / L).toFixed(2);
-  const pos = (D.fv && D.fv.pos || []).map(p => { const price = (D.fv.px || {})[p[0]], roi = price ? (price / p[2] - 1 - 0.002) * p[3] * 100 : 0;
-    return `<div class="tr"><span>${p[0]} · x${p[3]} · залог ${money(p[1])}</span><b class="${cls(roi)}">${roi >= 0 ? "+" : "−"}${Math.abs(roi).toFixed(1)}%</b></div>`; }).join("");
-  return `<div class="card"><h2>Фьючерсы с плечом</h2>
-  <p class="muted">Покупка (long) на просадке и закрытие при прибыли. Плечо умножает и прибыль, и убыток на вашу сумму в сделке.</p>
-  <div class="chips">${[["off", "Выкл"], ["dry", "Демо"]].map(x => `<button data-set="f:m:${x[0]}" class="${fc.m === x[0] ? "on" : ""}">${x[1]}</button>`).join("")}<button disabled>Реальный · скоро</button></div>
-  <p class="muted">${fc.m === "dry" ? "Демо: фьючерсы на виртуальные деньги демо-счёта, настоящих ордеров нет. Реальные фьючерсы включим после проверки торговли на споте." : "Фьючерсы выключены."}</p></div>
-  <div class="card"><h2>Плечо</h2>${chipSet("f", "lev", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], fc.lev, x => "x" + x, "wrap")}
-  ${L > 1 ? `<div class="warn">При x${L} падение цены примерно на ${liq}% ликвидирует позицию: вся сумма в сделке сгорит. Сигнал проверяется каждые 5 минут, цена может «проскочить» стоп-лосс.</div>` : '<p class="muted">x1: без плеча, ликвидации нет.</p>'}</div>
-  <div class="card"><h2>Монеты</h2><p class="muted">На каких монетах торговать фьючерсами.</p>${coinChips("f", fc.coins)}</div>
-  <div class="card"><h2>Правила сделки</h2>${stp("f", "buy", "Покупать, если цена упала за сутки на, %", fc.buy) + stp("f", "tp", "Закрывать при прибыли на залог, %", fc.tp)}
-  <div class="hint">Остановить убыток на (от залога)</div>${chipSet("f", "sl", [0, 5, 10, 20], fc.sl, slText)}
-  <div class="hint">Сумма одной сделки (залог)</div>${chipSet("f", "per", [10, 20, 50], fc.per, x => x + " USDT")}
-  <div class="sum">Бот купит монету при падении на ${fc.buy}% за сутки с плечом x${L} и залогом ${fc.per} USDT. Закроет сделку при прибыли +${fc.tp}% на залог (это рост цены примерно на ${move}%) ${fc.sl ? "и остановит убыток на −" + fc.sl + "%" : "без остановки убытка"}.</div></div>
-  ${pos ? `<div class="card"><h2>Открытые демо-сделки</h2>${pos}</div>` : ""}
-  ${ch ? '<button class="go" data-sv="f">Сохранить в боте</button><p class="note">После сохранения приложение закроется, а бот подтвердит настройки в чате.</p>' : ""}`;
+  const pos = (D.fv && D.fv.pos || []).map(p => { const price = (D.fv.px || {})[p[0]], roi = price ? (p[5] * (price - p[2]) - 0.001 * p[6] - 0.001 * p[5] * price) / p[1] * 100 : 0;
+    return `<div class="tr"><span>${p[0]} · x${p[3]} · ордеров ${p[4]} · залог ${money(p[1])}</span><b class="${cls(roi)}">${roi >= 0 ? "+" : "−"}${Math.abs(roi).toFixed(1)}%</b></div>`; }).join("");
+  return wizard("f") + (pos ? `<div class="card"><h2>Открытые демо-сделки</h2>${pos}</div>` : "");
 }
 
 function ctrl() {
@@ -361,7 +357,7 @@ function render() {
 
 document.addEventListener("change", e => {
   const el = e.target; if (!el || !el.dataset) return;
-  if (el.dataset.nm) { ctl.nm = el.value.slice(0, 24); render(); return; }
+  if (el.dataset.nm) { (el.dataset.nm === "f" ? fc : ctl).nm = el.value.slice(0, 24); render(); return; }
   if (!el.dataset.nv) return;
   const [sc, k] = el.dataset.nv.split(":"), o = sc === "s" ? ctl : fc; o[k] = clampK(k, el.value); fix(o); render();
 });
@@ -385,19 +381,20 @@ document.addEventListener("click", e => {
     const [sc, n] = b.dataset.co.split(":"), o = sc === "s" ? ctl : fc, key = sc === "s" ? "cs" : "coins", i = o[key].indexOf(n);
     if (i >= 0) { if (o[key].length > 1) o[key].splice(i, 1); } else o[key].push(n);
   }
-  else if (b.dataset.wz) { ws = Math.min(7, Math.max(0, +b.dataset.wz)); window.scrollTo(0, 0); }
+  else if (b.dataset.wz) { const [sc, i] = b.dataset.wz.split(":"); W[sc] = Math.min(7, Math.max(0, +i)); window.scrollTo(0, 0); }
   else if (b.dataset.tg) {
-    const k = b.dataset.tg.split(":")[1];
-    if (k === "slon") ctl.sl = ctl.sl > 0 ? 0 : 10; else ctl[k] = !ctl[k];
-    if (k === "slon" && !ctl.sl) ctl.ssl = false;
+    const [sc, k] = b.dataset.tg.split(":"), o = sc === "s" ? ctl : fc;
+    if (k === "slon") { o.sl = o.sl > 0 ? 0 : 10; if (!o.sl) o.ssl = false; }
+    else if (k === "m") o.m = o.m === "dry" ? "off" : "dry";
+    else o[k] = !o[k];
   }
   else if (b.dataset.bt) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "backtest", ...spotMsg()})); else alert("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    if (T() && T().sendData) T().sendData(JSON.stringify(b.dataset.bt === "f" ? {...futMsg(), a: "backtest", mk: "fut"} : {a: "backtest", ...spotMsg()})); else alert("Откройте приложение из Telegram, кнопкой в чате с ботом.");
     return;
   }
   else if (b.dataset.sv) {
     const msg = b.dataset.sv === "s" ? spotMsg()
-      : {a: "fut", m: fc.m, lev: fc.lev, per: fc.per, coins: fc.coins, buy: fc.buy, tp: fc.tp, sl: fc.sl};
+      : futMsg();
     if (T() && T().sendData) T().sendData(JSON.stringify(msg)); else alert("Откройте приложение из Telegram, кнопкой в чате с ботом.");
     return;
   }
