@@ -83,9 +83,11 @@ nav button.on{color:var(--gold)}
 .ghost:disabled,.go:disabled{opacity:.45}
 .tg.dis{opacity:.4}
 .pf{display:flex;align-items:center;gap:16px;margin:6px 0 20px}
-.pf .av{width:68px;height:68px;border:2px solid #3a2f14;font-size:26px}
-.pf b{font-size:22px;display:block;line-height:1.2}
-.pf .muted{font-size:14px}
+.pf .av{width:68px;height:68px;border:2px solid #3a2f14;font-size:26px;flex:none}
+.pf>div:nth-child(2){flex:1;min-width:0}
+.pf b{font-size:22px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;line-height:1.2}
+.pf .muted{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pf .gl{flex:none}
 .lab{color:var(--mut);font-size:15px;margin:18px 2px 10px}
 .bc{display:flex;align-items:center;gap:14px}
 .bc .amt{flex:1;font-size:28px;font-weight:700;color:var(--up);font-variant-numeric:tabular-nums}
@@ -128,7 +130,7 @@ try {  // сообщаем Telegram, что страница готова, не 
   else if (window.parent !== window) parent.postMessage(JSON.stringify({eventType: "web_app_ready", eventData: {}}), "*");
 } catch (e) {}
 const init = () => { const w = T(); if (w) { w.ready(); w.expand(); try { w.setHeaderColor("#000000"); w.setBackgroundColor("#000000"); } catch (e) {} } };
-init(); window.addEventListener("load", () => { init(); setNavAvatar(); });
+init(); window.addEventListener("load", () => { init(); setNavAvatar(); if (D && tab === "me") render(); });
 const $ = s => document.querySelector(s), app = $("#app");
 const SUPPORT = "KeelSteady_Support";   // Telegram-аккаунт поддержки (без @)
 const PLAN = {days: 30, usdt: 10};      // тариф подписки
@@ -138,7 +140,7 @@ let lang = "ru", pv = "main", hide = false, wp = false;
 try { hide = localStorage.getItem("ks_hide") === "1"; lang = localStorage.getItem("ks_lang") || ""; } catch (e) {}
 let acct = "demo", dr = false, ts = "spot", fc = null, fbase = "", rc = null, rbase = "", base = "", D = null, tab = "home", range = "7", cm = null, ctl = null;
 
-const uid = () => ((T() && T().initDataUnsafe && T().initDataUnsafe.user) || {}).id || "";
+const uid = () => tgUser().id || "";
 const live = () => !!(D && D.rl && D.rl.m === "live");
 const pill = () => acct === "real" ? "Реальный счёт" : "Демо-счёт";
 const money = (n, sg) => (n < 0 ? "−" : sg ? "+" : "") + "$" + Math.abs(n).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -408,7 +410,14 @@ function staticLang() {
 }
 const say = t => alert(trText(t));
 
-const tgUser = () => ((T() && T().initDataUnsafe && T().initDataUnsafe.user) || {});
+// Имя берём у Telegram; если он не передал данные (бывает при запуске с кнопки клавиатуры), берём то, что прислал бот (D.tu)
+const tgUser = () => {
+  const w = (T() && T().initDataUnsafe && T().initDataUnsafe.user) || {}, b = (typeof D === "object" && D && D.tu) || {};
+  const has = !!(w.first_name || w.last_name || w.username);
+  return {first_name: has ? w.first_name : b.f, last_name: has ? w.last_name : b.l, username: has ? w.username : b.u,
+          id: w.id || b.i || 0, photo_url: w.photo_url, language_code: w.language_code};
+};
+const initial = nm => ((String(nm).match(/[\p{L}\p{N}]/u) || [Array.from(String(nm))[0] || "?"])[0]).toUpperCase();
 const IC = {
   wallet: '<svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M3 10V7a2 2 0 0 1 2-2h11"/><circle cx="16.5" cy="13.5" r="1.1"/></svg>',
   x: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>',
@@ -428,7 +437,7 @@ const row = (ic, tone, title, sub, attr, right) => `<button class="rw" ${attr ||
 const sub = (title, inner) => `<div class="top"><button class="back" data-pv="main">‹ Профиль</button></div><h2 style="margin-bottom:10px">${title}</h2>${inner}`;
 
 function me() {
-  const u = tgUser(), nm = [u.first_name, u.last_name].filter(Boolean).join(" ") || trText("Участник"), lc = D.lc || {rq: 0, un: ""}, ex = D.ex || {st: 0};
+  const u = tgUser(), nm = [u.first_name, u.last_name].filter(Boolean).join(" ").trim() || u.username || trText("Участник"), lc = D.lc || {rq: 0, un: ""}, ex = D.ex || {st: 0};
   const today = new Date().toISOString().slice(0, 10), lok = !lc.rq || lc.un >= today, bal = D.rl && D.rl.bal != null ? D.rl.bal : null;
   if (pv === "sub") {
     const free = !lc.rq, til = lc.un && lc.un >= today ? lc.un : "";
@@ -448,7 +457,7 @@ function me() {
   if (pv === "danger") return sub("Опасная зона", `<div class="card"><p class="muted">Удаление необратимо: бот забудет ваш ключ Bybit, настройки и демо-счёт. Открытые реальные сделки сначала нужно закрыть. Ключ в Bybit рекомендуем удалить самостоятельно.</p>
     ${ex.st ? '<button class="go red" data-dx="1" style="margin-top:12px">Отключить Bybit</button>' : ""}
     ${wp ? '<div class="chips" style="margin-top:12px"><button data-wp="yes" style="background:#3a1b22;color:#f0706f;border-color:#4a1d20">Да, удалить всё</button><button data-wp="no">Отмена</button></div>' : '<button class="go red" data-wp="ask" style="margin-top:12px">Удалить мои данные</button>'}</div>`);
-  return `<div class="pf"><div class="av">${u.photo_url ? `<img src="${esc(u.photo_url)}" alt="">` : esc(nm[0])}</div><div><b>${esc(nm)}</b><div class="muted">${u.username ? "@" + esc(u.username) : "ID " + (u.id || "—")}</div></div><button class="gl" data-lang="1" aria-label="Язык / Language">${IC.globe}</button></div>
+  return `<div class="pf"><div class="av">${u.photo_url ? `<img src="${esc(u.photo_url)}" alt="" data-i="${esc(initial(nm))}" onerror="this.replaceWith(document.createTextNode(this.dataset.i))">` : esc(initial(nm))}</div><div><b>${esc(nm)}</b><div class="muted">${u.username ? "@" + esc(u.username) : "ID " + (u.id || "—")}</div></div><button class="gl" data-lang="1" aria-label="Язык / Language">${IC.globe}</button></div>
   <div class="lab">Баланс на Bybit</div>
   <div class="card"><div class="bc"><span class="ib g">${IC.wallet}</span><span class="amt">${bal == null ? "—" : hide ? "••••••" : bal.toFixed(2) + " USDT"}</span><button class="eye" data-eye="1" aria-label="Скрыть или показать">${hide ? IC.eyeoff : IC.eye}</button></div>
   <p class="muted" style="margin-top:10px">${bal == null ? "<span>Подключите Bybit, и здесь появится баланс.</span> " : ""}<span>Ваши деньги всегда на вашем счёте Bybit: у нас нет вывода средств.</span></p></div>
