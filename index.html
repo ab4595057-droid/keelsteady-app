@@ -302,7 +302,9 @@ function openTrades() {
 }
 
 function port() {
-  const coins = D.p.map(c => { const [nm, q, p, sma, up] = c, diff = (p / sma - 1) * 100;
+  // Карточки монет только для тех, по которым есть открытая сделка на выбранном счёте; без сделок пары не показываем
+  const held = new Set(acct === "demo" ? D.p.filter(c => c[1] > 0).map(c => c[0]) : (((D.rl || {}).pos) || []).map(p => p[0]));
+  const coins = D.p.filter(c => held.has(c[0])).map(c => { const [nm, q, p, sma, up] = c, diff = (p / sma - 1) * 100;
     return `<div class="card"><div class="coin"><h3>${nm}</h3><span class="badge ${up ? "up" : "dn"}">${up ? "в росте" : "в спаде"}</span></div>
     <div class="kv"><span class="lbl">Цена</span><b>$${px(p)}</b></div><div class="kv"><span class="lbl">Средняя за 200 дней</span><b>$${px(sma)}</b></div>
     <div class="kv"><span class="lbl">К средней за 200 дней</span><b class="${cls(diff)}">${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%</b></div>
@@ -606,7 +608,7 @@ function me() {
   ${row("tg", "y", "Telegram", u.username ? "@" + esc(u.username) : "ID " + (u.id || "—"), "", '<span class="act" style="color:var(--up)">Привязан ✓</span>')}
   ${row("key", ex.st ? "g" : "", "Bybit", ex.st ? "Ключ " + esc(ex.kp) + " подключён" : "Не подключён", 'data-xv="bybit"', ex.st ? "" : '<span class="act">Настроить</span>')}
   ${row("trash", "r", "Опасная зона", "Удаление данных", 'data-pv="danger"')}
-  <p class="note">Обновлено: ${esc(D.u || "")}. Чтобы увидеть свежие данные, снова нажмите «📱 Приложение» в боте.</p><p class="note" style="opacity:.55;margin-top:-6px">Keel Steady · v2026.11.03-10</p>`;
+  <p class="note">Обновлено: ${esc(D.u || "")}. Чтобы увидеть свежие данные, снова нажмите «📱 Приложение» в боте.</p><p class="note" style="opacity:.55;margin-top:-6px">Keel Steady · v2026.11.03-11</p>`;
 }
 
 function setNavAvatar() {
