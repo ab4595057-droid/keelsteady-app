@@ -414,8 +414,11 @@ const say = t => alert(trText(t));
 const tgUser = () => {
   const w = (T() && T().initDataUnsafe && T().initDataUnsafe.user) || {}, b = (typeof D === "object" && D && D.tu) || {};
   const has = !!(w.first_name || w.last_name || w.username);
-  return {first_name: has ? w.first_name : b.f, last_name: has ? w.last_name : b.l, username: has ? w.username : b.u,
-          id: w.id || b.i || 0, photo_url: w.photo_url, language_code: w.language_code};
+  const un = has ? w.username : b.u;
+  // Фото: сначала то, что дал Telegram; если нет (кнопка клавиатуры), публичная аватарка по @username; иначе буква
+  return {first_name: has ? w.first_name : b.f, last_name: has ? w.last_name : b.l, username: un,
+          id: w.id || b.i || 0, language_code: w.language_code,
+          photo_url: w.photo_url || (/^[A-Za-z0-9_]{4,32}$/.test(un || "") ? "https://t.me/i/userpic/320/" + un + ".jpg" : "")};
 };
 const initial = nm => ((String(nm).match(/[\p{L}\p{N}]/u) || [Array.from(String(nm))[0] || "?"])[0]).toUpperCase();
 const IC = {
@@ -457,7 +460,7 @@ function me() {
   if (pv === "danger") return sub("Опасная зона", `<div class="card"><p class="muted">Удаление необратимо: бот забудет ваш ключ Bybit, настройки и демо-счёт. Открытые реальные сделки сначала нужно закрыть. Ключ в Bybit рекомендуем удалить самостоятельно.</p>
     ${ex.st ? '<button class="go red" data-dx="1" style="margin-top:12px">Отключить Bybit</button>' : ""}
     ${wp ? '<div class="chips" style="margin-top:12px"><button data-wp="yes" style="background:#3a1b22;color:#f0706f;border-color:#4a1d20">Да, удалить всё</button><button data-wp="no">Отмена</button></div>' : '<button class="go red" data-wp="ask" style="margin-top:12px">Удалить мои данные</button>'}</div>`);
-  return `<div class="pf"><div class="av">${u.photo_url ? `<img src="${esc(u.photo_url)}" alt="" data-i="${esc(initial(nm))}" onerror="this.replaceWith(document.createTextNode(this.dataset.i))">` : esc(initial(nm))}</div><div><b>${esc(nm)}</b><div class="muted">${u.username ? "@" + esc(u.username) : "ID " + (u.id || "—")}</div></div><button class="gl" data-lang="1" aria-label="Язык / Language">${IC.globe}</button></div>
+  return `<div class="pf"><div class="av">${u.photo_url ? `<img src="${esc(u.photo_url)}" alt="" referrerpolicy="no-referrer" data-i="${esc(initial(nm))}" onerror="this.replaceWith(document.createTextNode(this.dataset.i))">` : esc(initial(nm))}</div><div><b>${esc(nm)}</b><div class="muted">${u.username ? "@" + esc(u.username) : "ID " + (u.id || "—")}</div></div><button class="gl" data-lang="1" aria-label="Язык / Language">${IC.globe}</button></div>
   <div class="lab">Баланс на Bybit</div>
   <div class="card"><div class="bc"><span class="ib g">${IC.wallet}</span><span class="amt">${bal == null ? "—" : hide ? "••••••" : bal.toFixed(2) + " USDT"}</span><button class="eye" data-eye="1" aria-label="Скрыть или показать">${hide ? IC.eyeoff : IC.eye}</button></div>
   <p class="muted" style="margin-top:10px">${bal == null ? "<span>Подключите Bybit, и здесь появится баланс.</span> " : ""}<span>Ваши деньги всегда на вашем счёте Bybit: у нас нет вывода средств.</span></p></div>
@@ -477,7 +480,11 @@ function me() {
 
 function setNavAvatar() {
   const u = tgUser(), sv = document.querySelector("nav [data-tab=me] svg");
-  if (u.photo_url && sv) sv.outerHTML = `<img class="navav" src="${esc(u.photo_url)}" alt="" onerror="this.style.visibility='hidden'">`;
+  if (!u.photo_url || !sv) return;
+  const im = new Image();   // сначала загружаем, и только потом меняем значок: при ошибке остаётся обычный значок
+  im.className = "navav"; im.alt = ""; im.referrerPolicy = "no-referrer";
+  im.onload = () => { const s = document.querySelector("nav [data-tab=me] svg"); if (s) s.replaceWith(im); };
+  im.src = u.photo_url;
 }
 
 function render() {
