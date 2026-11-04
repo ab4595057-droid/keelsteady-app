@@ -635,7 +635,7 @@ const row = (ic, tone, title, sub, attr, right) => `<button class="rw" ${attr ||
 const sub = (title, inner) => `<div class="top"><button class="back" data-pv="main">‹ Профиль</button></div><h2 style="margin-bottom:10px">${title}</h2>${inner}`;
 
 const num = v => (typeof v === "number" && isFinite(v) ? v : 0);
-function refData() { const r = (D && D.rf) || {}; return {l: /^https:\/\/t\.me\/[A-Za-z0-9_]+\?start=ref_\d+$/.test(r.l || "") ? r.l : "", r: num(r.r) || 5, n: num(r.n), p: num(r.p), e: num(r.e), o: num(r.o), d: num(r.d)}; }
+function refData() { const r = (D && (D.rr || (D.rf && typeof D.rf.l === "string" ? D.rf : null))) || {}; return {l: /^https:\/\/t\.me\/[A-Za-z0-9_]+\?start=ref_\d+$/.test(r.l || "") ? r.l : "", r: num(r.r) || 5, n: num(r.n), p: num(r.p), e: num(r.e), o: num(r.o), d: num(r.d)}; }
 function copyText(t) {
   try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).catch(() => {}); return true; } } catch (e) {}
   try { const a = document.createElement("textarea"); a.value = t; a.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(a); a.select(); const ok = document.execCommand("copy"); a.remove(); return ok; } catch (e) { return false; }
@@ -693,7 +693,7 @@ function me() {
   ${row("tg", "y", "Telegram", u.username ? "@" + esc(u.username) : "ID " + (u.id || "—"), "", '<span class="act" style="color:var(--up)">Привязан ✓</span>')}
   ${row("key", ex.st ? "g" : "", "Bybit", ex.st ? "Ключ " + esc(ex.kp) + " подключён" : "Не подключён", 'data-xv="bybit"', ex.st ? "" : '<span class="act">Настроить</span>')}
   ${row("trash", "r", "Опасная зона", "Удаление данных", 'data-pv="danger"')}
-  <p class="note">Обновлено: ${esc(D.u || "")}. Чтобы увидеть свежие данные, снова нажмите «📱 Приложение» в боте.</p><p class="note" style="opacity:.55;margin-top:-6px">Keel Steady · v2026.11.04-2</p>`;
+  <p class="note">Обновлено: ${esc(D.u || "")}. Чтобы увидеть свежие данные, снова нажмите «📱 Приложение» в боте.</p><p class="note" style="opacity:.55;margin-top:-6px">Keel Steady · v2026.11.04-3</p>`;
 }
 
 function setNavAvatar() {
