@@ -610,25 +610,13 @@ function botsBlock() {
 }
 
 function port() {
-  // Карточки монет только по тем, где есть открытая сделка: на реальном счёте, на демо или на обоих; без сделок пары не показываем
-  const info = {}, rpos = {};
-  D.p.filter(c => c[1] > 0).forEach(c => info[c[0]] = {p: c[2], sma: c[3], up: c[4], d: c});
-  (D.rp || []).forEach(c => info[c[0]] = {...(info[c[0]] || {}), p: c[1], sma: c[2], up: c[3]});
-  (((D.rl || {}).pos) || []).forEach(p => { if (info[p[0]]) info[p[0]].r = p; });
-  const coins = Object.keys(info).map(nm => { const c = info[nm], diff = (c.p / c.sma - 1) * 100;
-    const rr = c.r ? (c.r[5] || c.p) * c.r[1] : 0;
-    return `<div class="card"><div class="coin"><h3>${nm}</h3><span>${c.r ? `<span class="tag real">${c.r[4] ? "пробно" : "реальный"}</span>` : ""}${c.d ? '<span class="tag demo">демо</span>' : ""}<span class="badge ${c.up ? "up" : "dn"}" style="margin-left:6px">${c.up ? "в росте" : "в спаде"}</span></span></div>
-    <div class="kv"><span class="lbl">Цена</span><b>$${px(c.p)}</b></div><div class="kv"><span class="lbl">Средняя за 200 дней</span><b>$${px(c.sma)}</b></div>
-    <div class="kv"><span class="lbl">К средней за 200 дней</span><b class="${cls(diff)}">${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%</b></div>
-    ${c.r ? `<div class="kv"><span class="lbl">Реальный счёт</span><b>${c.r[1]} ≈ ${money(rr)}</b></div>` : ""}
-    ${c.d ? `<div class="kv"><span class="lbl">Демо-счёт</span><b>${c.d[1]} ≈ ${money(c.d[5])}${c.d[6] > 1 ? " · x" + c.d[6] : ""}</b></div>` : ""}</div>`; }).join("");
   const trs = D.tr.slice().reverse().map(t => `<div class="tr"><span><span>${dshort(t[0])}</span> · ${["продажа", "покупка", "ликвидация", "прибыль", "стоп-лосс"][t[2]]} ${t[1]}</span><span>$${px(t[3])}${t[5] != null ? ` <b class="${cls(t[5])}">${t[5] >= 0 ? "+" : "−"}${Math.abs(t[5])}%</b>` : ""}</span></div>`).join("");
   const lg = (((D.rl || {}).lg) || []).slice().reverse().map(l => `<div class="tr"><span><span>${dshort(l[0])}</span> · ${l[2] === "buy" ? "покупка" : "продажа"} ${l[1]}</span><span>$${px(l[4])}${l[5] != null ? ` <b class="${cls(l[5])}">${money(l[5], 1)}</b>` : ""}</span></div>`).join("");
   const histR = D.rl ? `<div class="card"><div class="coin"><h2>История реальных сделок</h2><span class="tag real">реальные деньги</span></div>${lg || '<p class="muted">Сделок пока нет.</p>'}</div>` : "";
   const histD = D.vr ? `<div class="card"><div class="coin"><h2>История демо-сделок</h2><span class="tag demo">виртуальные деньги</span></div>${trs || '<p class="muted">Сделок пока нет.</p>'}${D.nt > D.tr.length ? `<p class="muted" style="margin-top:8px">Показаны последние ${D.tr.length} из ${D.nt}. Полная история есть в боте.</p>` : ""}</div>` : "";
   const rfl = (D.rf && D.rf.lg) || [], ftxt = {ol: "открыта", os: "открыта", ad: "докупка", cl: "закрыта"};
   const histF = D.rf && (rfl.length || D.rf.m === "live") ? `<div class="card"><div class="coin"><h2>История реальных фьючерсов</h2><span class="tag real">реальные деньги</span></div>${rfl.slice().reverse().map(l => `<div class="tr"><span><span>${dshort(l[0])}</span> · ${ftxt[l[2]] || "сделка"}${l[2] === "ol" || l[2] === "os" ? " " + (l[2] === "os" ? "SHORT" : "LONG") + " x" + l[6] : ""} ${l[1]}</span><span>$${px(l[4])}${l[5] != null ? ` <b class="${cls(l[5])}">${money(l[5], 1)}</b>` : ""}</span></div>`).join("") || '<p class="muted">Сделок пока нет.</p>'}</div>` : "";
-  return `<div class="top"><h2>Портфель</h2><span class="pill">Реальный и демо</span></div>${botsBlock()}${D.rl ? openTrades("real") : ""}${openTrades("demo")}${coins}${histR}${histF}${histD}`;
+  return `<div class="top"><h2>Портфель</h2><span class="pill">Реальный и демо</span></div>${botsBlock()}${D.rl ? openTrades("real") : ""}${openTrades("demo")}${histR}${histF}${histD}`;
 }
 
 const mk = o => ({nm: o.nm || "Мой бот", dep: o.dep || 20, tf: !!o.tf, sa: !!o.sa, ssl: !!o.ssl, n: (o.dc || {}).n || 1, ov: (o.dc || {}).overlap || 10, ind: (o.dc || {}).indent || 1, mart: (o.dc || {}).mart || 0, cs: (o.p || []).map(c => c[0]), on: !!o.on, lv: o.lv || 1, md: o.md || "trend", buy: (o.dp || {}).buy || 5, tp: (o.dp || {}).tp || 1, sl: (o.dp || {}).sl === 0 ? 0 : (o.dp || {}).sl || 10});
@@ -969,7 +957,7 @@ function me() {
   ${row("tg", "y", "Telegram", u.username ? "@" + esc(u.username) : "ID " + (u.id || "—"), "", '<span class="act" style="color:var(--up)">Привязан ✓</span>')}
   ${row("key", ex.st ? "g" : "", "Bybit", ex.st ? "Ключ " + esc(ex.kp) + " подключён" : "Не подключён", 'data-xv="bybit"', ex.st ? "" : '<span class="act">Настроить</span>')}
   ${row("trash", "r", "Опасная зона", "Удаление данных", 'data-pv="danger"')}
-  <p class="note">Обновлено: ${esc(D.u || "")}. Чтобы увидеть свежие данные, снова нажмите «📱 Приложение» в боте.</p><p class="note" style="opacity:.55;margin-top:-6px">Keel Steady · v2026.11.05-8</p>`;
+  <p class="note">Обновлено: ${esc(D.u || "")}. Чтобы увидеть свежие данные, снова нажмите «📱 Приложение» в боте.</p><p class="note" style="opacity:.55;margin-top:-6px">Keel Steady · v2026.11.05-9</p>`;
 }
 
 function setNavAvatar() {
