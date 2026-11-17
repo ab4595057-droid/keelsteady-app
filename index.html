@@ -556,7 +556,7 @@ const aiInit = () => { try { const w = window.Telegram && Telegram.WebApp; if (w
 // Пропуск от бота (кнопка «Открыть Keel Steady»: там Telegram подпись не передаёт). Проверяет только сервер.
 const AI_PASS = (() => { try { const v = new URLSearchParams(location.search).get("ak") || ""; return /^\d+\.\d+\.[0-9a-f]{32}$/.test(v) ? v : ""; } catch (e) { return ""; } })();
 const AI_INIT = aiInit() || AI_PASS;   // есть хоть что-то для проверки на сервере
-const AI_LBL = {capital: ["Торговый капитал, USDT", 10], leverage: ["Плечо, ×", 1], margin: ["Залог на сделку, USDT", 1], grid_orders: ["Ордеров в сетке", 1], grid_overlap: ["Перекрытие сетки, %", .5], grid_offset: ["Отступ до первой докупки, %", .1],
+const AI_LBL = {capital: ["Торговый капитал (виртуальный), USDT", 10], leverage: ["Плечо, ×", 1], grid_orders: ["Ордеров в сетке", 1], grid_overlap: ["Перекрытие сетки, %", .5], grid_offset: ["Отступ до первой докупки, %", .1],
   take_profit: ["Тейк-профит, % от залога", .5], stop_loss: ["Стоп-лосс, % от залога", 1], max_daily_loss: ["Дневной лимит убытка, USDT", .5], min_confidence: ["Минимальная уверенность AI, %", .01]};
 let tmode = (() => { try { return localStorage.getItem("ks_tmode") === "ai" ? "ai" : "man"; } catch (e) { return "man"; } })();
 const AIS = {st: "idle", d: null, err: "", busy: false, edit: null, at: 0, msg: "", ok: false};   // ok: сервер подтвердил админа, только тогда виден переключатель
@@ -586,7 +586,8 @@ async function aiPost(path, body, okMsg) {
   AIS.busy = false; AIS.posting = false;
   await aiLoad(true);
 }
-setInterval(() => { if (tab === "ctl" && tmode === "ai" && AIS.ok && !document.hidden && !AIS.edit) aiLoad(true); }, 15000);
+const aiTyping = () => { const a = document.activeElement; return !!(a && (a.id === "aiq" || a.id === "aibud")); };
+setInterval(() => { if (tab === "ctl" && tmode === "ai" && AIS.ok && !document.hidden && !AIS.edit && !aiTyping()) aiLoad(true); }, 15000);
 if (AI_INIT) setTimeout(() => aiLoad(true), 1500);   // тихая проверка: нет подписки или подписи — раздел AI не показывается
 // Отправка действия боту. Запуск кнопкой клавиатуры (нет initData) — sendData, как раньше.
 // Запуск синей кнопкой меню — через сервер: он проверяет подпись Telegram и передаёт то же действие в бота.
@@ -613,6 +614,50 @@ function aiConfirm(text) {
     try { res(window.confirm(text)); } catch (e) { res(false); }
   });
 }
+// ----- Монета и лимит USDT: одна монета на пользователя, каталог всех USDT-фьючерсов Bybit -----
+const aiCoinName = sym => String(sym || "").split("/")[0];
+async function aiMarkets() {
+  if (AIS.mk || AIS.mkBusy) return; AIS.mkBusy = true;
+  try { AIS.mk = (await aiCall("/api/ai/markets")).items || []; } catch (e) { AIS.mkErr = aiNet(e); }
+  AIS.mkBusy = false; aiShowResults();
+}
+function aiResultsHtml() {
+  if (!AIS.mk) return `<p class="muted">${esc(AIS.mkErr || "Загружаю список монет Bybit…")}</p>`;
+  const q = (AIS.q || "").trim().toUpperCase(), cur = AIS.d && AIS.d.settings.symbol;
+  const list = !q ? AIS.mk.filter(x => ["BTC", "ETH", "SOL", "XRP", "DOGE", "BNB", "TON", "SUI"].includes(x.b))
+    : AIS.mk.filter(x => x.b.includes(q) || (x.n || "").toUpperCase().includes(q)).sort((a, b) => (a.b.indexOf(q) === 0 ? 0 : 1) - (b.b.indexOf(q) === 0 ? 0 : 1) || a.b.length - b.b.length);
+  if (!list.length) return '<p class="muted">Ничего не найдено. Введите тикер, например PEPE, или название.</p>';
+  return `<div class="chips wrap">${list.slice(0, 24).map(x => `<button data-aisym="${esc(x.s)}" class="${x.s === cur ? "on" : ""}">${esc(x.b)}${x.n ? `<span style="display:block;font-size:11px;font-weight:400;opacity:.7">${esc(x.n)}</span>` : ""}</button>`).join("")}</div>
+    <p class="muted" style="font-size:12px">${q ? `Найдено: ${list.length}${list.length > 24 ? ", показаны первые 24" : ""}.` : `Всего монет: ${AIS.mk.length}. Найдите любую по тикеру или названию.`}</p>`;
+}
+function aiShowResults() { const el = document.getElementById("aires"); if (el) el.innerHTML = aiResultsHtml(); }
+function aiCoinCard(d) {
+  const s = d.settings, c = d.coin || {}, lock = !(d.access || {ok: true}).ok, dis = lock ? " disabled" : "";
+  if (!AIS.mk && !AIS.mkBusy && !AIS.mkErr) setTimeout(aiMarkets, 0);
+  const minB = d.min_budget, low = minB != null && s.budget < minB;
+  const pend = (d.switch_pending || []).map(aiCoinName).join(", ");
+  return `<div class="card"><h2>Монета и лимит</h2>
+    <div class="kv"><span>Монета AI</span><b>${esc(c.base || aiCoinName(s.symbol))}${c.name ? " · " + esc(c.name) : ""}</b></div>
+    ${c.price ? `<div class="kv"><span>Цена</span><b>${aiPx(c.price)}</b></div>` : ""}
+    <div class="kv"><span>Лимит маржи</span><b>${aiNum(s.budget, 2)} USDT</b></div>
+    <div class="kv"><span>Плечо</span><b>×${d.effective_leverage || s.leverage}${c.max_lev ? ` <span class="muted">(биржа до ×${aiNum(c.max_lev, 0)})</span>` : ""}</b></div>
+    ${minB != null ? `<div class="kv"><span>Минимум для входа</span><b class="${low ? "dn" : ""}">≈ ${aiNum(minB, 2)} USDT</b></div>` : ""}
+    ${low ? `<div class="warn">Лимит меньше минимального ордера биржи для ${esc(c.base || "")}: увеличьте лимит или плечо, иначе AI не войдёт в сделку.</div>` : ""}
+    ${d.last_skip ? `<div class="warn">AI пропустил вход: ${esc(d.last_skip)}</div>` : ""}
+    ${pend ? `<div class="warn">Позиция по ${esc(pend)} не закрывается принудительно: AI ведёт её до тейка или стопа. Новые входы по ${esc(c.base || "")} — после её закрытия.</div>` : ""}
+    <div class="hint">Сменить монету</div>
+    <input class="inp" id="aiq" placeholder="Поиск: тикер или название (BTC, Solana…)" autocomplete="off" value="${esc(AIS.q || "")}"${dis}>
+    <div id="aires">${aiResultsHtml()}</div>
+    <div class="hint">Ваш лимит, USDT</div>
+    <div class="chips wrap">${[10, 25, 50, 100, 250, 500].map(v => `<button data-aibq="${v}"${dis}>${v}</button>`).join("")}</div>
+    <input class="inp" id="aibud" type="number" inputmode="decimal" min="5" step="any" value="${esc(String(AIS.bud != null ? AIS.bud : s.budget))}"${dis}>
+    <button class="go" data-aibsave="1" style="margin-top:10px"${dis}>Сохранить лимит</button>
+    <p class="muted" style="margin-top:8px">Лимит — максимум маржи, который AI может задействовать (без учёта плеча). Размер позиции = маржа × плечо. AI не превысит лимит и свободный баланс, а ордера подгонит под минимальный размер и шаг биржи.</p></div>`;
+}
+document.addEventListener("input", e => {
+  if (e.target && e.target.id === "aiq") { AIS.q = e.target.value; aiShowResults(); }
+  else if (e.target && e.target.id === "aibud") AIS.bud = e.target.value;
+});
 function tradeModeSwitch() {
   if (!AIS.ok) return "";
   return `<div class="seg"><button data-tm="man" class="${tmode === "man" ? "on" : ""}">Обычная торговля</button><button data-tm="ai" class="${tmode === "ai" ? "on" : ""}">AI Trading</button></div>`;
@@ -662,7 +707,7 @@ function aiPanel() {
     ${AIS.edit ? '<button class="ghost" data-aicancel="1" style="margin-top:8px">Отменить изменения</button>' : `<button class="ghost" data-aipreset="1" style="margin-top:8px"${dis}>Вернуть «Умеренный»</button>`}</div>`;
   const foot = `<p class="muted" style="margin:4px 2px 12px">Testnet, LIVE=0: реальные ордера не отправляются. Результаты виртуальные и не гарантируют прибыль. ${AIS.at ? "Обновлено " + new Date(AIS.at).toLocaleTimeString("ru-RU") + "." : ""}</p>
     <button class="ghost" data-air="1">Обновить</button>${AIS.err ? `<div class="warn">${esc(AIS.err)}</div>` : ""}`;
-  return head + bal + pnl + pos + sig + hist + risk + foot;
+  return head + aiCoinCard(d) + bal + pnl + pos + sig + hist + risk + foot;
 }
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b || b.disabled) return;
@@ -681,9 +726,23 @@ document.addEventListener("click", e => {
     cur[k] = Math.min(l[1], Math.max(l[0], Math.round((+cur[k] + +ds.d) * 100) / 100));
     AIS.edit = JSON.stringify(Object.assign({}, cur, {direction: AIS.d.settings.direction})) === JSON.stringify(AIS.d.settings) ? null : cur;
   }
+  else if (ds.aisym && AIS.d) {
+    if (ds.aisym === AIS.d.settings.symbol) return;
+    const nm = aiCoinName(ds.aisym), open = (AIS.d.positions || []).length;
+    aiConfirm(`Торговать AI монетой ${nm}?` + (open ? " Открытая позиция по прежней монете не закроется: AI доведёт её до тейка или стопа, а новые входы будут по " + nm + "." : ""))
+      .then(ok => { if (ok) { AIS.q = ""; aiPost("/api/ai/settings", {symbol: ds.aisym}, "Монета AI: " + nm + "."); } });
+    return;
+  }
+  else if (ds.aibq) { AIS.bud = ds.aibq; const el = document.getElementById("aibud"); if (el) el.value = ds.aibq; return; }
+  else if (ds.aibsave && AIS.d) {
+    const el = document.getElementById("aibud"), v = Number(String(el ? el.value : AIS.bud).replace(",", "."));
+    if (!(v >= 5 && v <= 100000)) { say("Лимит — число от 5 до 100000 USDT."); return; }
+    AIS.bud = null; aiPost("/api/ai/settings", {budget: Math.round(v * 100) / 100}, "Лимит: " + v + " USDT.");
+    return;
+  }
   else if (ds.aicancel) AIS.edit = null;
   else if (ds.aisave && AIS.edit) { const body = AIS.edit; AIS.edit = null; aiPost("/api/ai/settings", body, "Настройки сохранены."); return; }
-  else if (ds.aipreset) { aiPost("/api/ai/settings", {leverage: 1, margin: 10, grid_orders: 4, grid_overlap: 5, grid_offset: 1, take_profit: 4.5, stop_loss: 10, max_daily_loss: 3, min_confidence: .68}, "Вернул профиль «Умеренный»."); return; }
+  else if (ds.aipreset) { aiPost("/api/ai/settings", {leverage: 1, grid_orders: 4, grid_overlap: 5, grid_offset: 1, take_profit: 4.5, stop_loss: 10, max_daily_loss: 3, min_confidence: .68}, "Вернул профиль «Умеренный»."); return; }
   else return;
   render();
 });
