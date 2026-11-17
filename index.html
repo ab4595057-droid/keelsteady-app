@@ -589,7 +589,7 @@ async function aiPost(path, body, okMsg) {
   AIS.busy = false; AIS.posting = false;
   await aiLoad(true);
 }
-const aiTyping = () => { const a = document.activeElement; return !!(a && (a.id === "aiq" || a.id === "aibud")); };
+const aiTyping = () => { const a = document.activeElement; return !!(a && ["aiq", "aibud", "ailevn", "ailevr"].includes(a.id)); };
 setInterval(() => { if (tab === "ctl" && tmode === "ai" && AIS.ok && !document.hidden && !AIS.edit && !aiTyping()) { aiLoad(true); aiAccount(); } }, 15000);
 if (AI_INIT) setTimeout(() => aiLoad(true), 1500);   // тихая проверка: нет подписки или подписи — раздел AI не показывается
 // Отправка действия боту. Запуск кнопкой клавиатуры (нет initData) — sendData, как раньше.
@@ -637,7 +637,7 @@ async function aiAccount(force) {
   AIS.accBusy = false; AIS.accAt = Date.now();
   if (ex !== aiEx()) { AIS.acc = null; return aiAccount(true); }   // ответ пришёл по прежней бирже: читаем выбранную if (tab === "ctl" && tmode === "ai") render();
 }
-const AI_LEVS = [1, 2, 3, 5, 10, 20, 25, 50, 75, 100, 125];
+const AI_LEV_MAX = 50;   // плечо AI: целое от ×1 до ×50 (и не выше, чем разрешает биржа для монеты)
 function aiAccountCard(d) {
   if (!AIS.acc && !AIS.accBusy && !AIS.accErr) setTimeout(() => aiAccount(true), 0);
   const a = AIS.acc, ex = aiEx(), title = "Счёт " + aiExName(ex);
@@ -663,7 +663,7 @@ function aiAccountCard(d) {
     <button class="ghost" data-aiacc="1" style="margin-top:6px">Обновить счёт</button>
     <button class="ghost" data-aiops="1" style="margin-top:6px">Журнал операций</button>${aiOpsHtml()}</div>`;
 }
-const AI_OPK = {smart_auto_on: "Smart Auto включён", smart_auto_off: "Smart Auto выключен", settings: "Настройки", close_virtual: "Закрытие (виртуально)", close_real: "Закрытие на бирже"};
+const AI_OPK = {leverage: "Плечо", smart_auto_on: "Smart Auto включён", smart_auto_off: "Smart Auto выключен", settings: "Настройки", close_virtual: "Закрытие (виртуально)", close_real: "Закрытие на бирже"};
 const AI_OPS = {done: "выполнено", failed: "ошибка", pending: "выполняется", unknown: "результат неизвестен — проверьте позицию", partial: "закрыто не полностью"};
 async function aiOps() {
   try { AIS.ops = (await aiCall("/api/ai/ops")).items || []; } catch (e) { AIS.ops = null; AIS.opsErr = aiNet(e); }
@@ -681,6 +681,7 @@ function aiOpWhat(o) {
     if (rest) out.push("параметры риска");
     return "Настройки" + (out.length ? ": " + out.join(", ") : "");
   }
+  if (o.kind === "leverage") return "Плечо ×" + a.leverage;
   return (AI_OPK[o.kind] || o.kind) + (a.symbol ? " " + aiCoinName(a.symbol) : "") + (a.all ? " (все)" : "");
 }
 function aiOpsHtml() {
@@ -703,8 +704,9 @@ function aiCoinCard(d) {
   if ((!AIS.mk || AIS.mkFor !== aiEx()) && !AIS.mkBusy && !AIS.mkErr) setTimeout(aiMarkets, 0);
   const minB = d.min_budget, low = minB != null && s.budget < minB;
   const pend = (d.switch_pending || []).map(aiCoinName).join(", ");
-  const exs = s.exchange || "bybit", acc = AIS.acc && AIS.acc.symbol, maxL = (acc && acc.max_lev) || c.max_lev || 125;
-  const levs = AI_LEVS.filter(v => v <= maxL);
+  const exs = s.exchange || "bybit", acc = AIS.acc && AIS.acc.connected && AIS.acc.exchange === exs && AIS.acc.symbol;
+  const exMax = (acc && acc.max_lev) || c.max_lev || null, maxL = Math.max(1, Math.min(AI_LEV_MAX, Math.floor(exMax || AI_LEV_MAX)));
+  const lv = AIS.lev != null ? AIS.lev : String(s.leverage), lvNum = Number(lv);
   return `<div class="card"><h2>Монета и лимит</h2>
     <div class="hint">Биржа</div><div class="seg"><button data-aiex="bybit" class="${exs === "bybit" ? "on" : ""}"${dis}>Bybit USDT Linear</button><button data-aiex="bingx" class="${exs === "bingx" ? "on" : ""}"${dis}>BingX USDT Perpetual</button></div>
     <p class="muted">У каждой биржи свои монета, лимит, плечо, направление, режим Smart Auto и история. Цены и сигналы — с ${aiExName(exs)}.${AIS.acc && !AIS.acc.connected ? ` Ключ ${aiExName(exs)} не подключён: AI торгует виртуально.` : ""}</p>
@@ -718,8 +720,12 @@ function aiCoinCard(d) {
     ${low ? `<div class="warn">Лимит ${aiNum(s.budget, 2)} USDT меньше минимального ордера ${esc(c.base || "")}: нужно не меньше ${aiNum(minB, 2)} USDT залога при плече ×${d.effective_leverage || s.leverage}. Пока лимит меньше, AI ордер не отправит.</div>` : ""}
     ${d.last_skip ? `<div class="warn">AI пропустил вход: ${esc(d.last_skip)}</div>` : ""}
     ${pend ? `<div class="warn">Позиция по ${esc(pend)} не закрывается принудительно: AI ведёт её до тейка или стопа. Новые входы по ${esc(c.base || "")} — после её закрытия.</div>` : ""}
-    <div class="hint">Плечо (биржа разрешает до ×${aiNum(maxL, 0)}${acc && acc.lev ? `, на бирже сейчас ×${aiNum(acc.lev, 0)}` : ""})</div>
-    <div class="chips wrap">${levs.map(v => `<button data-ailev="${v}" class="${s.leverage === v ? "on" : ""}"${dis}>×${v}</button>`).join("")}</div>
+    <div class="hint">Плечо ${esc(aiExName(exs))}: сейчас <b>×${s.leverage}</b>${acc && acc.lev ? ` · на бирже ×${aiNum(acc.lev, 0)}` : ""}</div>
+    <div style="display:flex;gap:10px;align-items:center"><input type="range" id="ailevr" min="1" max="${maxL}" step="1" value="${Number.isInteger(lvNum) && lvNum >= 1 && lvNum <= maxL ? lvNum : Math.min(s.leverage, maxL)}" style="flex:1;accent-color:var(--gold, #d4a94c)" aria-label="Плечо"${dis}>
+      <input class="inp" id="ailevn" type="number" inputmode="numeric" min="1" max="${maxL}" step="1" value="${esc(lv)}" style="width:86px;margin:0;text-align:center" aria-label="Плечо, число"${dis}></div>
+    <p class="muted" id="ailevw" style="font-size:12px;margin-top:4px">${aiLevHint(lv, maxL, exMax, exs)}</p>
+    <button class="go" data-ailevsave="1" style="margin-top:6px"${dis || AIS.posting ? " disabled" : ""}>Применить плечо</button>
+    ${AIS.levMsg ? `<p class="muted" style="margin-top:6px">${esc(AIS.levMsg)}</p>` : ""}
     <div class="hint">Сменить монету</div>
     <input class="inp" id="aiq" placeholder="Поиск: тикер или название (BTC, Solana…)" autocomplete="off" value="${esc(AIS.q || "")}"${dis}>
     <div id="aires">${aiResultsHtml()}</div>
@@ -728,6 +734,53 @@ function aiCoinCard(d) {
     <input class="inp" id="aibud" type="number" inputmode="decimal" min="5" step="any" value="${esc(String(AIS.bud != null ? AIS.bud : s.budget))}"${dis}>
     <button class="go" data-aibsave="1" style="margin-top:10px"${dis}>Сохранить лимит</button>
     <p class="muted" style="margin-top:8px">Лимит — максимум маржи, который AI может задействовать (без учёта плеча). Размер позиции = маржа × плечо. AI не превысит лимит и свободный баланс, а ордера подгонит под минимальный размер и шаг биржи.</p></div>`;
+}
+// Плечо: ползунок и поле ввода показывают одно значение; ошибка видна сразу, значение не округляется
+function aiLevCheck(v, maxL) {
+  const t = String(v).trim().replace(",", "."), n = Number(t);
+  if (t === "" || !Number.isFinite(n)) return "Введите число от 1 до " + maxL + ".";
+  if (!Number.isInteger(n)) return "Плечо — целое число: " + t + " не подходит. Значение не округляется.";
+  if (n < 1 || n > maxL) return "Плечо — от ×1 до ×" + maxL + (maxL < AI_LEV_MAX ? " (больше биржа не разрешает для этой монеты)." : ".");
+  return "";
+}
+function aiLevHint(v, maxL, exMax, ex) {
+  const err = aiLevCheck(v, maxL);
+  if (err) return `<span class="dn">${esc(err)}</span>`;
+  const pending = !AIS.acc || AIS.acc.exchange !== ex;
+  return `Диапазон ×1–×${maxL}, шаг 1.` + (exMax && exMax < AI_LEV_MAX ? ` ${aiExName(ex)} разрешает для этой монеты до ×${aiNum(exMax, 0)}.`
+    : pending ? ` Предел ${aiExName(ex)} для монеты уточняется; при сохранении сервер проверит его по бирже.` : "");
+}
+const aiLevMax = () => { const el = document.getElementById("ailevr"); return el ? +el.max : AI_LEV_MAX; };
+document.addEventListener("input", e => {
+  const id = e.target && e.target.id;
+  if (id === "ailevr" || id === "ailevn") {
+    AIS.lev = e.target.value;
+    const other = document.getElementById(id === "ailevr" ? "ailevn" : "ailevr"), mx = aiLevMax();
+    if (other && !aiLevCheck(AIS.lev, mx)) other.value = String(Number(AIS.lev));
+    const w = document.getElementById("ailevw");
+    if (w) { const er = aiLevCheck(AIS.lev, mx); w.innerHTML = er ? `<span class="dn">${esc(er)}</span>` : "Новое плечо: ×" + Number(AIS.lev) + ". Нажмите «Применить плечо»."; }
+    return;
+  }
+});
+// Применение плеча: проверка на сервере (диапазон, каталог, сама биржа по ключу — только чтение).
+// Ошибка — прежнее плечо остаётся. Номер команды защищает от повторного применения.
+async function aiLevApply(v) {
+  if (AIS.posting) return;
+  const ex = aiEx(), xn = aiExName(ex);
+  AIS.posting = true; AIS.levMsg = "Проверяю плечо ×" + v + " на " + xn + "…"; render();
+  for (let i = 0; i < 50 && AIS.busy; i++) await new Promise(r => setTimeout(r, 100));
+  AIS.busy = true;
+  try {
+    const r = await aiCall("/api/ai/leverage", {leverage: v, exchange: ex, op_id: aiOp()});
+    const adj = r.adjusted || {}, a = adj.grid_overlap ? ` Перекрытие сетки: ${adj.grid_overlap[0]}% → ${adj.grid_overlap[1]}%.` : "";
+    AIS.levMsg = `✅ Плечо ×${r.leverage} сохранено для ${xn}` + (r.previous != null && r.previous !== r.leverage ? ` (было ×${r.previous})` : "") + ". "
+      + (r.checked === "exchange" ? `Проверено на ${xn} по вашему ключу: монета допускает до ×${aiNum(r.max_lev || 0, 0)}` + (r.exchange_lev ? `, на бирже сейчас ×${aiNum(r.exchange_lev, 0)}` : "") + ". "
+        : `Проверено по каталогу ${xn} (ключ ${xn} не подключён). `)
+      + "На бирже плечо выставится перед первым реальным входом; сейчас LIVE выключен, ордеров нет." + a + (r.duplicate ? " Команда уже была выполнена." : "");
+    AIS.lev = null;
+  } catch (e) { AIS.levMsg = "⚠️ " + aiNet(e); }
+  AIS.busy = false; AIS.posting = false;
+  await aiLoad(true);
 }
 document.addEventListener("input", e => {
   if (e.target && e.target.id === "aiq") { AIS.q = e.target.value; aiShowResults(); }
@@ -869,18 +922,22 @@ document.addEventListener("click", e => {
     if (ds.aiex === AIS.d.settings.exchange) return;
     const nm = ds.aiex === "bingx" ? "BingX" : "Bybit";
     aiConfirm(`Переключить AI на ${nm}? Загрузятся баланс, монеты, цены, позиции, режим и настройки ${nm}. Настройки, режим и позиции текущей биржи сохранятся и продолжат работать.`).then(async ok => {
-      if (!ok) return; AIS.mk = null; AIS.q = ""; AIS.acc = null; AIS.accErr = ""; AIS.prev = ""; AIS.ops = null; AIS.edit = null;
+      if (!ok) return; AIS.mk = null; AIS.q = ""; AIS.acc = null; AIS.accErr = ""; AIS.prev = ""; AIS.ops = null; AIS.edit = null; AIS.lev = null; AIS.levMsg = "";
       await aiPost("/api/ai/settings", {exchange: ds.aiex}, "Биржа AI: " + nm + ".");
       aiMarkets(); aiAccount(true);
     });
     return;
   }
-  else if (ds.ailev && AIS.d) {
-    const v = +ds.ailev;
-    if (v === AIS.d.settings.leverage) return;
-    const open = (AIS.d.positions || []).length;
-    aiConfirm(`Плечо ×${v} для новых сделок AI?` + (open ? " Плечо уже открытой позиции не изменится." : "") + " На бирже плечо выставится перед следующим входом.")
-      .then(ok => { if (ok) aiPost("/api/ai/settings", {leverage: v}, "Плечо: ×" + v + "."); });
+  else if (ds.ailevsave && AIS.d) {
+    const s = AIS.d.settings, el = document.getElementById("ailevn"), raw = el ? el.value : (AIS.lev != null ? AIS.lev : String(s.leverage));
+    const err = aiLevCheck(raw, aiLevMax());
+    if (err) { AIS.levMsg = "⚠️ " + err + " Плечо осталось ×" + s.leverage + "."; render(); return; }
+    const v = Number(String(raw).trim().replace(",", "."));
+    if (v === s.leverage) { AIS.levMsg = "Плечо уже ×" + v + "."; AIS.lev = null; render(); return; }
+    const open = (AIS.d.positions || []).length, ov = s.grid_overlap * v >= 90 ? Math.round((89 / v - 0.05) * 10) / 10 : null;
+    aiConfirm(`Плечо ×${v} для новых сделок AI на ${aiExName(aiEx())}? Сейчас ×${s.leverage}.` + (open ? " Плечо уже открытой позиции не изменится." : "")
+      + (ov != null ? ` Чтобы сетка не доходила до ликвидации, перекрытие сетки уменьшится с ${s.grid_overlap}% до ${ov}%.` : ""))
+      .then(ok => { if (ok) aiLevApply(v); else { AIS.levMsg = "Плечо не изменено: ×" + s.leverage + "."; render(); } });
     return;
   }
   else if (ds.aiacc) { aiAccount(true); return; }
