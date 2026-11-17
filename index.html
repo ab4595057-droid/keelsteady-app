@@ -556,7 +556,7 @@ const aiInit = () => { try { const w = window.Telegram && Telegram.WebApp; if (w
 // Пропуск от бота (кнопка «Открыть Keel Steady»: там Telegram подпись не передаёт). Проверяет только сервер.
 const AI_PASS = (() => { try { const v = new URLSearchParams(location.search).get("ak") || ""; return /^\d+\.\d+\.[0-9a-f]{32}$/.test(v) ? v : ""; } catch (e) { return ""; } })();
 const AI_INIT = aiInit() || AI_PASS;   // есть хоть что-то для проверки на сервере
-const AI_LBL = {margin: ["Залог на сделку, USDT", 1], grid_orders: ["Ордеров в сетке", 1], grid_overlap: ["Перекрытие сетки, %", .5], grid_offset: ["Отступ до первой докупки, %", .1],
+const AI_LBL = {capital: ["Торговый капитал, USDT", 10], leverage: ["Плечо, ×", 1], margin: ["Залог на сделку, USDT", 1], grid_orders: ["Ордеров в сетке", 1], grid_overlap: ["Перекрытие сетки, %", .5], grid_offset: ["Отступ до первой докупки, %", .1],
   take_profit: ["Тейк-профит, % от залога", .5], stop_loss: ["Стоп-лосс, % от залога", 1], max_daily_loss: ["Дневной лимит убытка, USDT", .5], min_confidence: ["Минимальная уверенность AI, %", .01]};
 let tmode = (() => { try { return localStorage.getItem("ks_tmode") === "ai" ? "ai" : "man"; } catch (e) { return "man"; } })();
 const AIS = {st: "idle", d: null, err: "", busy: false, edit: null, at: 0, msg: "", ok: false};   // ok: сервер подтвердил админа, только тогда виден переключатель
@@ -635,14 +635,14 @@ function aiPanel() {
   const pnl = `<div class="card"><h2>PnL</h2><div class="kv"><span>Всего</span>${aiPnl(p.total)}</div><div class="kv"><span>Сегодня</span>${aiPnl(p.today)}</div>
     <div class="kv"><span>Закрыто сделок</span><b>${p.trades}</b></div><div class="kv"><span>Прибыльных</span><b>${p.win_rate == null ? "—" : p.win_rate + "%"}</b></div>
     <div class="kv"><span>Комиссии</span><b>${money(p.fees)}</b></div>${d.daily_limit_hit ? '<div class="warn">Дневной лимит убытка достигнут: до конца дня (UTC) новых входов не будет.</div>' : ""}</div>`;
-  const pos = `<div class="card"><h2>Текущие позиции</h2>${d.positions.length ? d.positions.map(x => `<div class="sum"><div class="kv" style="margin-top:0"><span><b>${aiSym(x.sym)}</b> · ${aiSide(x.side)} ×${d.leverage}</span>${aiPnl(x.upnl)}</div>
+  const pos = `<div class="card"><h2>Текущие позиции</h2>${d.positions.length ? d.positions.map(x => `<div class="sum"><div class="kv" style="margin-top:0"><span><b>${aiSym(x.sym)}</b> · ${aiSide(x.side)} ×${x.lev || d.leverage}</span>${aiPnl(x.upnl)}</div>
       <div class="kv"><span>Вход / цена</span><b>${aiPx(x.entry)} / ${aiPx(x.price)}</b></div><div class="kv"><span>Залог · ордера</span><b>${money(x.margin)} · ${x.filled} из ${x.orders}</b></div>
       <div class="kv"><span>Тейк / стоп</span><b>${aiPx(x.tp_px)} / ${aiPx(x.sl_px)}</b></div></div>`).join("") : '<p class="muted">Открытых позиций нет.</p>'}</div>`;
   const sig = `<div class="card"><h2>Сигналы AI</h2>${Object.keys(d.signals || {}).length ? Object.entries(d.signals).map(([k, v]) => `<div class="kv"><span><b>${aiSym(k)}</b> ${aiSide(v.side)}</span><b>${Math.round((v.confidence || 0) * 100)}% · ${v.allowed ? '<span class="up">вход разрешён</span>' : '<span class="muted">ждёт</span>'}</b></div>
       <p class="muted" style="font-size:12px;margin-top:2px">${esc(v.reason || "")}${d.paused[k] ? " · пауза до " + aiWhen(d.paused[k]) : ""}</p>`).join("") : '<p class="muted">Сигналов пока нет: агент обновляет их раз в минуту.</p>'}</div>`;
   const hist = `<div class="card"><h2>История сделок</h2>${d.history.length ? d.history.slice(0, 15).map(h => `<div class="kv" style="gap:10px"><span>${aiSym(h.sym)} ${aiSide(h.side)} · ${h.why === "TP" ? "тейк" : h.why === "SL" ? "стоп" : esc(h.why)}<span class="muted" style="display:block;font-size:12px">${aiWhen(h.closed_at)} · ${aiPx(h.entry)} → ${aiPx(h.exit)}</span></span>${aiPnl(h.pnl)}</div>`).join("") : '<p class="muted">Закрытых сделок пока нет.</p>'}</div>`;
   const lim = d.limits || {};
-  const risk = `<div class="card"><h2>Настройки риска</h2><p class="muted">Профиль «Умеренный». Плечо ×${d.leverage} фиксировано, одна позиция одновременно, пауза ${d.pause_hours} ч после сделки.</p>
+  const risk = `<div class="card"><h2>Настройки риска</h2><p class="muted">Ваши личные настройки: у других подписчиков свои. Профиль «Умеренный» по умолчанию, одна позиция одновременно, пауза ${d.pause_hours} ч после сделки. Капитал меняется, когда нет открытых позиций; плечо открытой позиции не меняется.</p>
     ${Object.entries(AI_LBL).map(([k, [t, st]]) => { const v = s[k], pct = k === "min_confidence", show = pct ? Math.round(v * 100) : v, l = lim[k] || [0, 0];
       return `<div class="hint">${t} <span class="muted">(${pct ? Math.round(l[0] * 100) + "–" + Math.round(l[1] * 100) : l[0] + "–" + l[1]})</span></div><div class="stp"><button data-ais="${k}" data-d="-${st}"${dis}>−</button><div class="inp">${show}</div><button data-ais="${k}" data-d="${st}"${dis}>+</button></div>`; }).join("")}
     <button class="go" data-aisave="1" style="margin-top:14px" ${AIS.edit && !lock ? "" : "disabled"}>Сохранить настройки</button>
@@ -665,7 +665,7 @@ document.addEventListener("click", e => {
   }
   else if (ds.aicancel) AIS.edit = null;
   else if (ds.aisave && AIS.edit) { const body = AIS.edit; AIS.edit = null; aiPost("/api/ai/settings", body, "Настройки сохранены."); return; }
-  else if (ds.aipreset) { aiPost("/api/ai/settings", {margin: 10, grid_orders: 4, grid_overlap: 5, grid_offset: 1, take_profit: 4.5, stop_loss: 10, max_daily_loss: 3, min_confidence: .68}, "Вернул профиль «Умеренный»."); return; }
+  else if (ds.aipreset) { aiPost("/api/ai/settings", {leverage: 1, margin: 10, grid_orders: 4, grid_overlap: 5, grid_offset: 1, take_profit: 4.5, stop_loss: 10, max_daily_loss: 3, min_confidence: .68}, "Вернул профиль «Умеренный»."); return; }
   else return;
   render();
 });
