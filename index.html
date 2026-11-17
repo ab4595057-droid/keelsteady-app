@@ -553,16 +553,15 @@ function pnlCards(tot, dy, unreal) {
 const AI_API = "https://70-34-209-15.sslip.io";
 const AI_HASH_INIT = (() => { try { return new URLSearchParams(location.hash.slice(1)).get("tgWebAppData") || ""; } catch (e) { return ""; } })();
 const aiInit = () => { try { const w = window.Telegram && Telegram.WebApp; if (w && w.initData) return w.initData; } catch (e) {} return AI_HASH_INIT; };
-const AI_INIT = aiInit();   // подпись проверяет только сервер; здесь лишь передаём её как есть
-// Запуск без данных портфеля в ссылке (кнопка меню BotFather): показываем только раздел AI Trading,
-// и только если сервер подтвердил подпись Telegram и подписку. Иначе — прежний экран «Откройте приложение из бота».
-let AI_ONLY = false;
+// Пропуск от бота (кнопка «Открыть Keel Steady»: там Telegram подпись не передаёт). Проверяет только сервер.
+const AI_PASS = (() => { try { const v = new URLSearchParams(location.search).get("ak") || ""; return /^\d+\.\d+\.[0-9a-f]{32}$/.test(v) ? v : ""; } catch (e) { return ""; } })();
+const AI_INIT = aiInit() || AI_PASS;   // есть хоть что-то для проверки на сервере
 const AI_LBL = {margin: ["Залог на сделку, USDT", 1], grid_orders: ["Ордеров в сетке", 1], grid_overlap: ["Перекрытие сетки, %", .5], grid_offset: ["Отступ до первой докупки, %", .1],
   take_profit: ["Тейк-профит, % от залога", .5], stop_loss: ["Стоп-лосс, % от залога", 1], max_daily_loss: ["Дневной лимит убытка, USDT", .5], min_confidence: ["Минимальная уверенность AI, %", .01]};
 let tmode = (() => { try { return localStorage.getItem("ks_tmode") === "ai" ? "ai" : "man"; } catch (e) { return "man"; } })();
 const AIS = {st: "idle", d: null, err: "", busy: false, edit: null, at: 0, msg: "", ok: false};   // ok: сервер подтвердил админа, только тогда виден переключатель
 async function aiCall(path, body) {
-  const h = {"X-Telegram-Init-Data": aiInit()}; if (body) h["Content-Type"] = "application/json";
+  const h = {}; if (aiInit()) h["X-Telegram-Init-Data"] = aiInit(); if (AI_PASS) h["X-KS-App-Key"] = AI_PASS; if (body) h["Content-Type"] = "application/json";
   const r = await fetch(AI_API + path, {method: body ? "POST" : "GET", headers: h, body: body ? JSON.stringify(body) : undefined, cache: "no-store"});
   let j = null; try { j = await r.json(); } catch (e) {}
   if (!r.ok) { const er = new Error((j && typeof j.detail === "string" && j.detail) || ("Ошибка сервера " + r.status)); er.code = r.status; throw er; }
@@ -571,25 +570,18 @@ async function aiCall(path, body) {
 const aiNet = e => /fetch|network|load failed/i.test(e.message || "") ? "Сервер AI недоступен. Проверьте интернет и нажмите «Обновить»." : e.message;
 async function aiLoad(quiet) {
   if (AIS.busy) return; AIS.busy = true;
-  if (!quiet) { AIS.st = AIS.d ? "ok" : "load"; if (AI_ONLY || (tab === "ctl" && tmode === "ai")) render(); }
+  if (!quiet) { AIS.st = AIS.d ? "ok" : "load"; if (tab === "ctl" && tmode === "ai") render(); }
   try { AIS.d = await aiCall("/api/ai/overview"); AIS.st = "ok"; AIS.err = ""; AIS.at = Date.now(); if (!AIS.ok) { AIS.ok = true; if (tab === "ctl") render(); } }
   catch (e) { AIS.err = aiNet(e); AIS.st = AIS.d && !e.code ? "ok" : "err"; if (e.code) AIS.d = null; }
-  AIS.busy = false; if (AI_ONLY || (tab === "ctl" && tmode === "ai")) render();
+  AIS.busy = false; if (tab === "ctl" && tmode === "ai") render(); else if (tab === "ctl" && AIS.ok) render();
 }
 async function aiPost(path, body, okMsg) {
   if (AIS.busy) return; AIS.busy = true; AIS.msg = "";
   try { await aiCall(path, body); AIS.msg = okMsg; } catch (e) { AIS.msg = "⚠️ " + aiNet(e); }
   AIS.busy = false; await aiLoad(true);
 }
-setInterval(() => { if ((AI_ONLY || (tab === "ctl" && tmode === "ai")) && AIS.ok && !document.hidden && !AIS.edit) aiLoad(true); }, 15000);
+setInterval(() => { if (tab === "ctl" && tmode === "ai" && AIS.ok && !document.hidden && !AIS.edit) aiLoad(true); }, 15000);
 if (AI_INIT) setTimeout(() => aiLoad(true), 1500);   // тихая проверка: нет подписки или подписи — раздел AI не показывается
-const OPEN_FROM_BOT = '<div class="card"><h2>Откройте приложение из бота</h2><p class="muted">Нажмите «📱 Приложение» в чате с ботом Keel Steady.</p></div>';
-function aiOnlyView() {
-  if (AIS.ok && AIS.d) return `<div class="top"><h2>Торговля</h2><span class="pill">AI · testnet</span></div>
-    <div class="acc demo"><b>AI Trading</b>Портфель и обычная торговля открываются кнопкой «📱 Открыть Keel Steady» в чате с ботом.</div>${aiPanel()}`;
-  if (AIS.st === "err" || !aiInit()) return OPEN_FROM_BOT + (AIS.err ? `<div class="warn">${esc(AIS.err)}</div>` : "");
-  return '<div class="card"><h2>Keel Steady</h2><p class="muted">Проверяю доступ…</p></div>';
-}
 function tradeModeSwitch() {
   if (!AIS.ok) return "";
   return `<div class="seg"><button data-tm="man" class="${tmode === "man" ? "on" : ""}">Обычная торговля</button><button data-tm="ai" class="${tmode === "ai" ? "on" : ""}">AI Trading</button></div>`;
@@ -1290,7 +1282,6 @@ function staleBar() {
 
 function render() {
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
-  if (!D && AI_ONLY) { setApp(aiOnlyView()); return; }
   if (!D) return;
   setApp(staleBar() + (tab === "home" ? home() : tab === "port" ? port() : tab === "ctl" ? ctrl() : tab === "ex" ? exch() : me()) + '<p class="note">Это не финансовый совет. Результаты торговли не гарантируют прибыль.</p>');
 }
@@ -1513,12 +1504,7 @@ const guessLang = () => { const c = (tgUser().language_code || "").slice(0, 2); 
   if (!lang) lang = guessLang();
   staticLang();
   const q = new URLSearchParams(location.search).get("d");
-  if (!q) {   // нет данных портфеля: кнопка меню. AI — только после проверки подписи и подписки на сервере
-    if (!aiInit()) { setApp(OPEN_FROM_BOT); return; }
-    AI_ONLY = true; tab = "ctl"; tmode = "ai";
-    const nav = document.querySelector("nav"); if (nav) nav.style.display = "none";
-    render(); aiLoad(); return;
-  }
+  if (!q) { setApp('<div class="card"><h2>Откройте приложение из бота</h2><p class="muted">Нажмите «📱 Приложение» в чате с ботом Keel Steady.</p></div>'); return; }
   try { D = await decode(q); } catch (e) { setApp('<div class="card"><h2>Не удалось прочитать данные</h2><p class="muted">Обновите Telegram и снова нажмите «📱 Приложение» в боте.</p></div>'); return; }
   const l = new Date().toISOString().slice(0, 10).split("-"); cm = [+l[0], +l[1] - 1];
   if (!lang) lang = D.lg || guessLang();
