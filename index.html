@@ -316,13 +316,13 @@ const DECKS = [
       "- Режим позиции менять не нужно: бот определит его сам.",
       "- Цены и сигналы бот берёт с Bybit, а ордера отправляет на BingX, поэтому цена исполнения может немного отличаться.",
       "- Перед запуском бот проверит, что контракт по вашей монете есть на BingX.",
-      "- Одновременно работает одна биржа: чтобы перейти на другую, сначала отключите текущую.",
+      "- Можно подключить сразу Bybit и BingX, у каждой свой ключ. Реальные боты торгуют на основной (первой подключённой) бирже, в разделе AI доступны обе.",
       "- Начните с небольшой суммы."], [
       "- Move USDT to the futures account. The bot cannot see money on the spot and Fund accounts.",
       "- You do not need to change the position mode: the bot detects it by itself.",
       "- The bot takes prices and signals from Bybit and sends orders to BingX, so the execution price may differ slightly.",
       "- Before launch the bot checks that your coin has a contract on BingX.",
-      "- Only one exchange works at a time: to switch to the other one, disconnect the current one first.",
+      "- You can connect both Bybit and BingX, each with its own key. The real bots trade on the main (first connected) exchange; the AI section works with both.",
       "- Start with a small amount."]]},
   ]},
   {t: ["Как настроить торговлю", "How to set up trading"], s: [
@@ -567,6 +567,8 @@ async function aiCall(path, body) {
   if (!r.ok) { const er = new Error((j && typeof j.detail === "string" && j.detail) || ("Ошибка сервера " + r.status)); er.code = r.status; throw er; }
   return j;
 }
+const aiOp = () => "w" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);   // номер команды: сервер не выполнит её дважды
+const aiExName = x => x === "bingx" ? "BingX" : "Bybit";
 const aiNet = e => /fetch|network|load failed/i.test(e.message || "") ? "Сервер AI недоступен. Проверьте интернет и нажмите «Обновить»." : e.message;
 async function aiLoad(quiet) {
   if (AIS.busy || AIS.posting) return; AIS.busy = true;
@@ -582,7 +584,8 @@ async function aiPost(path, body, okMsg) {
   AIS.posting = true; AIS.msg = "Отправляю…"; render();
   for (let i = 0; i < 50 && AIS.busy; i++) await new Promise(r => setTimeout(r, 100));
   AIS.busy = true;
-  try { await aiCall(path, body); AIS.msg = "✅ " + okMsg; } catch (e) { AIS.msg = "⚠️ " + aiNet(e); }
+  const extra = path === "/api/ai/settings" && !("exchange" in body) ? {exchange: aiEx()} : {};
+  try { const r = await aiCall(path, Object.assign({op_id: aiOp()}, extra, body)); AIS.msg = (r && r.duplicate ? "✅ Уже выполнено: " : "✅ ") + okMsg; } catch (e) { AIS.msg = "⚠️ " + aiNet(e); }
   AIS.busy = false; AIS.posting = false;
   await aiLoad(true);
 }
@@ -620,40 +623,73 @@ const aiEx = () => (AIS.d && AIS.d.settings.exchange) || "bybit";
 async function aiMarkets() {
   const ex = aiEx();
   if ((AIS.mk && AIS.mkFor === ex) || AIS.mkBusy) return; AIS.mkBusy = true;
-  try { AIS.mk = (await aiCall("/api/ai/markets?ex=" + ex)).items || []; AIS.mkFor = ex; AIS.mkErr = ""; } catch (e) { AIS.mkErr = aiNet(e); }
-  AIS.mkBusy = false; aiShowResults();
+  try { const it = (await aiCall("/api/ai/markets?ex=" + ex)).items || []; if (ex === aiEx()) { AIS.mk = it; AIS.mkFor = ex; AIS.mkErr = ""; } } catch (e) { AIS.mkErr = aiNet(e); }
+  AIS.mkBusy = false;
+  if (ex !== aiEx()) { AIS.mk = null; return aiMarkets(); }   // пока шёл запрос, биржу переключили: список другой биржи не показываем
+  aiShowResults();
 }
 // Счёт биржи пользователя (через бота, только чтение): не чаще раза в минуту
 async function aiAccount(force) {
   if (AIS.accBusy || (!force && AIS.accAt && Date.now() - AIS.accAt < 60000)) return;
   AIS.accBusy = true;
-  try { AIS.acc = await aiCall("/api/ai/account"); AIS.accErr = ""; } catch (e) { AIS.accErr = aiNet(e); }
-  AIS.accBusy = false; AIS.accAt = Date.now(); if (tab === "ctl" && tmode === "ai") render();
+  const ex = aiEx();
+  try { const a = await aiCall("/api/ai/account?ex=" + ex); if (ex === aiEx()) { AIS.acc = a; AIS.accErr = ""; } } catch (e) { AIS.accErr = aiNet(e); }
+  AIS.accBusy = false; AIS.accAt = Date.now();
+  if (ex !== aiEx()) { AIS.acc = null; return aiAccount(true); }   // ответ пришёл по прежней бирже: читаем выбранную if (tab === "ctl" && tmode === "ai") render();
 }
 const AI_LEVS = [1, 2, 3, 5, 10, 20, 25, 50, 75, 100, 125];
 function aiAccountCard(d) {
   if (!AIS.acc && !AIS.accBusy && !AIS.accErr) setTimeout(() => aiAccount(true), 0);
-  const a = AIS.acc, exn = x => x === "bingx" ? "BingX" : "Bybit";
-  if (!a) return `<div class="card"><h2>Счёт биржи</h2><p class="muted">${esc(AIS.accErr || "Читаю баланс и позиции с вашей биржи…")}</p></div>`;
-  if (!a.connected) return `<div class="card"><h2>Счёт биржи</h2><p class="muted">Биржа не подключена. Подключите Bybit или BingX во вкладке «Биржа» — ключ без права вывода.</p></div>`;
+  const a = AIS.acc, ex = aiEx(), title = "Счёт " + aiExName(ex);
+  if (!a) return `<div class="card"><h2>${title}</h2><p class="muted">${esc(AIS.accErr || "Читаю баланс и позиции с " + aiExName(ex) + "…")}</p></div>`;
+  const others = (a.exchanges || []).filter(x => x !== ex).map(aiExName).join(", ");
+  if (!a.connected) return `<div class="card"><h2>${title}</h2><p class="muted">${aiExName(ex)} не подключена. Подключите её ключ во вкладке «Биржа» (без права вывода) — у каждой биржи свой ключ.${others ? " Уже подключена: " + others + "." : ""} Пока AI на ${aiExName(ex)} торгует только на виртуальном счёте.</p></div>`;
   const pos = (a.positions || []).map(x => `<div class="sum"><div class="kv" style="margin-top:0"><span><b>${esc(String(x.symbol).split("/")[0])}</b> · ${aiSide(x.side)} ×${aiNum(x.lev || 0, 0)}</span>${aiPnl(x.upnl || 0)}</div>
       <div class="kv"><span>Количество · вход</span><b>${x.qty} · ${aiPx(x.entry || 0)}</b></div>
       ${x.liq ? `<div class="kv"><span>Ликвидация</span><b class="dn">${aiPx(x.liq)}</b></div>` : ""}
       <div class="kv"><span>Кто открыл</span><b>${x.mine ? "бот" : "вручную"}</b></div>
-      ${x.mine ? `<button class="go red sm" data-aixclose="${esc(x.symbol)}" style="margin-top:8px">Принудительно закрыть позицию</button>` : '<p class="muted" style="margin-top:6px">Позицию открыли вручную: бот её не закрывает.</p>'}</div>`).join("");
-  return `<div class="card"><h2>Счёт биржи</h2>
-    <div class="kv"><span>Подключена</span><b>${exn(a.exchange)} · ключ ${esc(a.mask || "")}</b></div>
-    ${a.mismatch ? `<div class="warn">В AI выбрана ${exn(a.selected_exchange)}, а подключена ${exn(a.exchange)}. Торговать AI будет на подключённой бирже: выберите её или подключите другую во вкладке «Биржа».</div>` : ""}
+      <button class="go red sm" data-aixclose="${esc(x.symbol)}" data-aixside="${esc(x.side || "")}" style="margin-top:8px"${AIS.posting ? " disabled" : ""}>Принудительно закрыть на ${aiExName(ex)}</button>
+      ${x.mine ? "" : '<p class="muted" style="margin-top:6px">Позицию открыли вручную: закрыть её можно только после отдельного подтверждения.</p>'}</div>`).join("");
+  return `<div class="card"><h2>${title}</h2>
+    <div class="kv"><span>Ключ</span><b>${esc(a.mask || "")}</b></div>
+    ${others ? `<div class="kv"><span>Ещё подключена</span><b>${esc(others)}</b></div>` : ""}
+    ${a.bots_here === false && a.primary ? `<p class="muted">Реальные боты торгуют на ${aiExName(a.primary)}. Здесь — баланс и позиции ${aiExName(ex)} вашим ключом этой биржи.</p>` : ""}
     ${a.error ? `<div class="warn">${esc(a.error)}</div>` : ""}
     <div class="kv"><span>Свободная маржа</span><b>${a.usdt_free != null ? aiNum(a.usdt_free, 2) + " USDT" : "—"}</b></div>
     <div class="kv"><span>Всего USDT</span><b>${a.usdt_total != null ? aiNum(a.usdt_total, 2) + " USDT" : "—"}</b></div>
-    <div class="hint">Открытые позиции на бирже</div>${pos || '<p class="muted">Открытых позиций нет.</p>'}
+    <div class="hint">Открытые позиции на ${aiExName(ex)}</div>${pos || '<p class="muted">Открытых позиций нет.</p>'}
     ${AIS.prev ? `<div class="sum" style="margin-top:10px">${esc(AIS.prev)}</div>` : ""}
-    <p class="muted" style="margin-top:8px">Данные с вашей биржи, только чтение. Обновляются раз в минуту.</p>
-    <button class="ghost" data-aiacc="1" style="margin-top:6px">Обновить счёт</button></div>`;
+    <p class="muted" style="margin-top:8px">Данные с вашей биржи. Обновляются раз в минуту. Закрытие касается только выбранной позиции на ${aiExName(ex)}.</p>
+    <button class="ghost" data-aiacc="1" style="margin-top:6px">Обновить счёт</button>
+    <button class="ghost" data-aiops="1" style="margin-top:6px">Журнал операций</button>${aiOpsHtml()}</div>`;
+}
+const AI_OPK = {smart_auto_on: "Smart Auto включён", smart_auto_off: "Smart Auto выключен", settings: "Настройки", close_virtual: "Закрытие (виртуально)", close_real: "Закрытие на бирже"};
+const AI_OPS = {done: "выполнено", failed: "ошибка", pending: "выполняется", unknown: "результат неизвестен — проверьте позицию", partial: "закрыто не полностью"};
+async function aiOps() {
+  try { AIS.ops = (await aiCall("/api/ai/ops")).items || []; } catch (e) { AIS.ops = null; AIS.opsErr = aiNet(e); }
+  render();
+}
+function aiOpWhat(o) {
+  const a = o.args || {}, out = [];
+  if (o.kind === "settings") {
+    if (a.exchange && Object.keys(a).filter(k => k !== "exchange" && k !== "op_id").length === 0) return "Переключение на " + aiExName(a.exchange);
+    if (a.symbol) out.push("монета " + aiCoinName(a.symbol));
+    if (a.budget != null) out.push("лимит " + a.budget + " USDT");
+    if (a.leverage != null) out.push("плечо ×" + a.leverage);
+    if (a.direction) out.push("направление " + ({auto: "Smart Auto", long: "LONG", short: "SHORT"}[a.direction] || a.direction));
+    const rest = Object.keys(a).filter(k => !["exchange", "op_id", "symbol", "budget", "leverage", "direction"].includes(k)).length;
+    if (rest) out.push("параметры риска");
+    return "Настройки" + (out.length ? ": " + out.join(", ") : "");
+  }
+  return (AI_OPK[o.kind] || o.kind) + (a.symbol ? " " + aiCoinName(a.symbol) : "") + (a.all ? " (все)" : "");
+}
+function aiOpsHtml() {
+  if (!AIS.ops) return AIS.opsErr ? `<p class="muted">${esc(AIS.opsErr)}</p>` : "";
+  if (!AIS.ops.length) return '<p class="muted">Операций пока нет.</p>';
+  return AIS.ops.slice(0, 12).map(o => `<div class="kv"><span>${new Date(o.t * 1000).toLocaleString("ru-RU", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})} · ${aiExName(o.ex)} · ${esc(aiOpWhat(o))}</span><b class="${o.status === "done" ? "" : "dn"}">${esc(AI_OPS[o.status] || o.status)}</b></div>`).join("");
 }
 function aiResultsHtml() {
-  if (!AIS.mk) return `<p class="muted">${esc(AIS.mkErr || "Загружаю список монет Bybit…")}</p>`;
+  if (!AIS.mk || AIS.mkFor !== aiEx()) return `<p class="muted">${esc(AIS.mkErr || "Загружаю список монет " + aiExName(aiEx()) + "…")}</p>`;
   const q = (AIS.q || "").trim().toUpperCase(), cur = AIS.d && AIS.d.settings.symbol;
   const list = !q ? AIS.mk.filter(x => ["BTC", "ETH", "SOL", "XRP", "DOGE", "BNB", "TON", "SUI"].includes(x.b))
     : AIS.mk.filter(x => x.b.includes(q) || (x.n || "").toUpperCase().includes(q)).sort((a, b) => (a.b.indexOf(q) === 0 ? 0 : 1) - (b.b.indexOf(q) === 0 ? 0 : 1) || a.b.length - b.b.length);
@@ -664,14 +700,14 @@ function aiResultsHtml() {
 function aiShowResults() { const el = document.getElementById("aires"); if (el) el.innerHTML = aiResultsHtml(); }
 function aiCoinCard(d) {
   const s = d.settings, c = d.coin || {}, lock = !(d.access || {ok: true}).ok, dis = lock ? " disabled" : "";
-  if (!AIS.mk && !AIS.mkBusy && !AIS.mkErr) setTimeout(aiMarkets, 0);
+  if ((!AIS.mk || AIS.mkFor !== aiEx()) && !AIS.mkBusy && !AIS.mkErr) setTimeout(aiMarkets, 0);
   const minB = d.min_budget, low = minB != null && s.budget < minB;
   const pend = (d.switch_pending || []).map(aiCoinName).join(", ");
   const exs = s.exchange || "bybit", acc = AIS.acc && AIS.acc.symbol, maxL = (acc && acc.max_lev) || c.max_lev || 125;
   const levs = AI_LEVS.filter(v => v <= maxL);
   return `<div class="card"><h2>Монета и лимит</h2>
     <div class="hint">Биржа</div><div class="seg"><button data-aiex="bybit" class="${exs === "bybit" ? "on" : ""}"${dis}>Bybit USDT Linear</button><button data-aiex="bingx" class="${exs === "bingx" ? "on" : ""}"${dis}>BingX USDT Perpetual</button></div>
-    ${AIS.acc ? `<p class="muted">${AIS.acc.connected ? `Ключ подключён: ${AIS.acc.exchange === "bingx" ? "BingX" : "Bybit"}.` + (AIS.acc.exchange !== exs ? ` Реальная торговля на ${exs === "bingx" ? "BingX" : "Bybit"} начнётся после подключения ключа ${exs === "bingx" ? "BingX" : "Bybit"} во вкладке «Биржа»; настройки AI для каждой биржи хранятся отдельно.` : "") : "Ключ биржи не подключён: AI торгует только на виртуальном счёте."}</p>` : ""}
+    <p class="muted">У каждой биржи свои монета, лимит, плечо, направление, режим Smart Auto и история. Цены и сигналы — с ${aiExName(exs)}.${AIS.acc && !AIS.acc.connected ? ` Ключ ${aiExName(exs)} не подключён: AI торгует виртуально.` : ""}</p>
     <div class="kv"><span>Монета AI</span><b>${esc(c.base || aiCoinName(s.symbol))}${c.name ? " · " + esc(c.name) : ""}</b></div>
     ${c.price ? `<div class="kv"><span>Цена</span><b>${aiPx(c.price)}</b></div>` : ""}
     <div class="kv"><span>Лимит маржи</span><b>${aiNum(s.budget, 2)} USDT</b></div>
@@ -704,7 +740,7 @@ async function aiClose(body) {
   for (let i = 0; i < 50 && AIS.busy; i++) await new Promise(r => setTimeout(r, 100));
   AIS.busy = true;
   try {
-    const r = await aiCall("/api/ai/close", body), c = r.closed || [];
+    const r = await aiCall("/api/ai/close", Object.assign({exchange: aiEx(), op_id: aiOp()}, body)), c = r.closed || [];
     AIS.msg = c.length ? "✅ Закрыто: " + c.map(x => aiCoinName(x.symbol) + " " + (x.pnl >= 0 ? "+" : "−") + Math.abs(x.pnl).toFixed(2) + " USDT").join(", ") + ". " + (r.note || "")
       : "Открытых позиций не было.";
     if ((r.no_price || []).length) AIS.msg += " ⚠️ Не удалось закрыть (нет цены): " + r.no_price.map(aiCoinName).join(", ") + ".";
@@ -712,6 +748,36 @@ async function aiClose(body) {
   AIS.busy = false; AIS.posting = false;
   await aiLoad(true);
   window.scrollTo(0, 0);
+}
+// Принудительное закрытие на бирже: сначала предпросмотр (без ордера), затем подтверждение стороны и размера.
+// Номер команды один на всё нажатие: повторная отправка не создаст второй ордер. Пока сервер не включил
+// закрытие на бирже, показывается только предпросмотр.
+async function aiRealClose(sym, side) {
+  if (AIS.posting) return;
+  const ex = aiEx(), xn = aiExName(ex), coin = aiCoinName(sym);
+  AIS.posting = true; AIS.prev = "Проверяю позицию на " + xn + "…"; render();
+  let r = null;
+  try { r = await aiCall("/api/ai/close_preview", {symbol: sym, exchange: ex, side}); } catch (e) { AIS.prev = "⚠️ " + aiNet(e); }
+  AIS.posting = false;
+  if (!r) { render(); return; }
+  if (!r.ok) { AIS.prev = "Закрыть нельзя: " + (r.why || "нет данных"); render(); return; }
+  const p = r.plan || {}, what = `${p.side === "buy" ? "BUY" : "SELL"} ${p.qty} ${coin} рыночным ордером reduceOnly` + (p.positionIdx != null ? `, positionIdx ${p.positionIdx}` : `, ${p.positionSide}`);
+  if (!r.enabled) { AIS.prev = `Будет отправлено на ${xn}: ${what}. ${r.note || ""}`; render(); return; }
+  const ok1 = await aiConfirm(`Закрыть ${aiSide(p.position_side).replace(/<[^>]+>/g, "")} ${coin} на ${xn}? Будет отправлено: ${what}. Другие позиции и другая биржа не затрагиваются.`);
+  if (!ok1) { AIS.prev = "Закрытие отменено."; render(); return; }
+  const manual = r.by === "manual";
+  if (manual && !(await aiConfirm(`Эту позицию ${coin} открыли не боты Keel Steady, а вручную. Всё равно закрыть её на ${xn}?`))) { AIS.prev = "Закрытие отменено."; render(); return; }
+  const op = aiOp();
+  AIS.posting = true; AIS.prev = "Закрываю на " + xn + "…"; render();
+  for (let i = 0; i < 2; i++) {   // повтор при обрыве связи — с тем же номером команды, второго ордера не будет
+    try {
+      const x = await aiCall("/api/ai/close_real", {symbol: sym, exchange: ex, side: p.position_side, qty: r.qty, op_id: op, confirm: true, manual});
+      AIS.prev = x.ok ? `✅ ${coin} на ${xn} закрыта` + (x.tries > 1 ? ` (частичное исполнение, ордеров: ${x.tries})` : "") + "." + (x.duplicate ? " Команда уже была выполнена." : "")
+        : x.sent ? `⚠️ ${coin} закрыта не полностью: осталось ${x.left}. ${x.why || ""} Бот продолжит сверку.` : "Ордер не отправлен: " + (x.why || "нет данных");
+      break;
+    } catch (e) { AIS.prev = "⚠️ " + aiNet(e); if (e.code) break; }
+  }
+  AIS.posting = false; render(); aiAccount(true);
 }
 // Источник входа фьючерсного бота: просадка (как раньше) или сигналы KeelSteady AI
 function aiEntrySwitch(sc, o) {
@@ -737,10 +803,12 @@ function aiPanel() {
   const lockMsg = !lock ? "" : ac.status === "error" ? (ac.error || "Проверка подписки временно недоступна.") + " Команды AI временно недоступны."
     : ac.status === "denied" ? "Управление AI закрыто администратором." : "Подписка не активна: управление AI закрыто. Оформить или продлить: вкладка «Профиль» → «Подписка».";
   const accLine = ac.status === "admin" ? "Администратор · бесплатно" : ac.status === "error" ? "не удалось проверить" : ac.until ? (ac.ok ? "Активна до " : "Закончилась ") + esc(ac.until) : "Нет";
-  const head = `<div class="card"><div class="coin"><h2>Smart Auto</h2><button class="tg ${on ? "on" : ""}" data-aion="${on ? 0 : 1}" aria-label="Smart Auto"${lock || AIS.posting ? " disabled" : ""}></button></div>
+  const md = d.modes || {}, mline = ["bybit", "bingx"].map(x => aiExName(x) + ": " + (md[x] ? "вкл" : "выкл")).join(" · ");
+  const head = `<div class="card"><div class="coin"><h2>Smart Auto · ${aiExName(aiEx())}</h2><button class="tg ${on ? "on" : ""}" data-aion="${on ? 0 : 1}" aria-label="Smart Auto"${lock || AIS.posting ? " disabled" : ""}></button></div>
     ${lock ? `<div class="warn">${esc(lockMsg)} Открытые позиции ведутся до тейка или стопа, история сохранена.</div>` : ""}
     <p class="muted" style="margin-top:6px">${lock ? "Новые входы сейчас не открываются." : on ? "Включён: AI сам выбирает LONG или SHORT и входит, когда сигнал подтверждён и риск-проверки пройдены." : "Выключен: агент только показывает сигналы и новых сделок не открывает."}</p>
     <div class="kv"><span>Рынок</span><b>${esc(d.market)}</b></div>
+    <div class="kv"><span>Smart Auto по биржам</span><b>${esc(mline)}</b></div>
     <div class="kv"><span>Режим</span><b>${d.testnet ? "TESTNET" : "MAINNET"} · ${d.live ? "ордера включены" : "без ордеров"}</b></div>
     <div class="kv"><span>Подписка</span><b class="${ac.ok ? "" : "dn"}">${accLine}</b></div>
     <div class="kv"><span>Агент на сервере</span><b class="${online ? "up" : "dn"}">${online ? "работает" : "не отвечает"}</b></div>
@@ -778,9 +846,10 @@ document.addEventListener("click", e => {
   if (ds.tm) { tmode = ds.tm === "ai" ? "ai" : "man"; try { localStorage.setItem("ks_tmode", tmode); } catch (er) {} if (tmode === "ai" && AIS.st !== "load") aiLoad(); window.scrollTo(0, 0); }
   else if (ds.air) { aiLoad(); return; }
   else if (ds.aion) {   // включение — только после подтверждения (защита от случайного касания); выключение — сразу
-    if (ds.aion !== "1") { aiPost("/api/ai/control", {enabled: false}, "Smart Auto выключен."); return; }
-    aiConfirm("Включить Smart Auto? Агент начнёт сам открывать сделки по сигналам AI (сейчас виртуальные, LIVE=0).")
-      .then(ok => { if (ok) aiPost("/api/ai/control", {enabled: true}, "Smart Auto включён."); });
+    const xn = aiExName(aiEx());
+    if (ds.aion !== "1") { aiPost("/api/ai/control", {enabled: false, exchange: aiEx()}, "Smart Auto на " + xn + " выключен."); return; }
+    aiConfirm(`Включить Smart Auto на ${xn}? Агент начнёт сам открывать сделки по сигналам AI для ${xn} (сейчас виртуальные, LIVE=0). Другая биржа не затрагивается.`)
+      .then(ok => { if (ok) aiPost("/api/ai/control", {enabled: true, exchange: aiEx()}, "Smart Auto на " + xn + " включён."); });
     return;
   }
   else if (ds.aidir && AIS.d) { aiPost("/api/ai/settings", {direction: ds.aidir}, "Направление сохранено."); return; }
@@ -799,9 +868,10 @@ document.addEventListener("click", e => {
   else if (ds.aiex && AIS.d) {
     if (ds.aiex === AIS.d.settings.exchange) return;
     const nm = ds.aiex === "bingx" ? "BingX" : "Bybit";
-    aiConfirm(`Переключить AI на ${nm}? Настройки ${nm} (монета, лимит, плечо) восстановятся, настройки текущей биржи сохранятся.`).then(ok => {
-      if (!ok) return; AIS.mk = null; AIS.q = ""; AIS.acc = null;
-      aiPost("/api/ai/settings", {exchange: ds.aiex}, "Биржа AI: " + nm + ".");
+    aiConfirm(`Переключить AI на ${nm}? Загрузятся баланс, монеты, цены, позиции, режим и настройки ${nm}. Настройки, режим и позиции текущей биржи сохранятся и продолжат работать.`).then(async ok => {
+      if (!ok) return; AIS.mk = null; AIS.q = ""; AIS.acc = null; AIS.accErr = ""; AIS.prev = ""; AIS.ops = null; AIS.edit = null;
+      await aiPost("/api/ai/settings", {exchange: ds.aiex}, "Биржа AI: " + nm + ".");
+      aiMarkets(); aiAccount(true);
     });
     return;
   }
@@ -814,16 +884,9 @@ document.addEventListener("click", e => {
     return;
   }
   else if (ds.aiacc) { aiAccount(true); return; }
-  else if (ds.aixclose) {   // этап «только чтение»: проверка владельца и предпросмотр ордера, без отправки
-    aiConfirm(`Проверить закрытие позиции ${ds.aixclose.split("/")[0]}? На этом этапе ордер не отправится — покажем, что будет отправлено.`).then(async ok => {
-      if (!ok) return;
-      try {
-        const r = await aiCall("/api/ai/close_preview", {symbol: ds.aixclose}), p = r.plan || {};
-        AIS.prev = r.ok ? `Будет отправлено: рыночный ордер ${p.side === "buy" ? "BUY" : "SELL"} ${p.qty} ${String(p.symbol).split("/")[0]}, reduceOnly` + (p.positionIdx != null ? `, positionIdx ${p.positionIdx}` : `, ${p.positionSide}`) + ". " + (r.note || "")
-          : "Закрыть нельзя: " + (r.why || "нет данных");
-      } catch (e) { AIS.prev = "⚠️ " + aiNet(e); }
-      render();
-    });
+  else if (ds.aiops) { if (AIS.ops) { AIS.ops = null; render(); } else aiOps(); return; }
+  else if (ds.aixclose) {
+    aiRealClose(ds.aixclose, ds.aixside || "");
     return;
   }
   else if (ds.aibq) { AIS.bud = ds.aibq; const el = document.getElementById("aibud"); if (el) el.value = ds.aibq; return; }
@@ -1282,7 +1345,8 @@ function realCard() {
 
 const AP = () => !!(D.lc && D.lc.ap);   // бот принимает оплату сам (CryptoBot)
 const subOk = () => { const lc = D.lc || {rq: 0, un: ""}; return !lc.rq || lc.un >= new Date().toISOString().slice(0, 10); };
-const XC = () => (D && D.ex && D.ex.n) || "bybit";   // код подключённой биржи (по умолчанию Bybit)
+const XC = () => (D && D.ex && D.ex.n) || "bybit";   // основная биржа: на ней торгуют реальные боты
+const XS = () => (D && D.ex && D.ex.xs) || (D && D.ex && D.ex.st ? {[XC()]: {kp: D.ex.kp, d: D.ex.d}} : {});   // все подключённые биржи
 const XN = () => XC() === "bingx" ? "BingX" : "Bybit";
 const EXS = [["BYBIT", "Bybit", "Фьючерсы", "bybit"], ["OKX", "OKX", "", ""], ["BINGX", "BingX", "Фьючерсы", "bingx"], ["BINANCE", "Binance", "", ""]];
 const XD = {
@@ -1293,25 +1357,24 @@ function exch() {
   const e = D.ex || {st: 0};
   if (XD[xv]) return exDetail(xv, e);
   const rows = EXS.map(x => {
-    const on = !!x[3], me = on && e.st && XC() === x[3], sub = on ? (me ? "Подключено · ключ " + esc(e.kp) : subOk() ? x[2] : "Нужна подписка") : "Скоро";
+    const on = !!x[3], k = on && XS()[x[3]], me = !!k, sub = on ? (me ? "Подключено · ключ " + esc(k.kp) + (e.st && XC() === x[3] && Object.keys(XS()).length > 1 ? " · основная" : "") : subOk() ? x[2] : "Нужна подписка") : "Скоро";
     return `<button class="rw" ${on ? `data-xv="${x[3]}"` : "disabled"}><span class="ib xl">${x[0]}</span><span class="rt"><b>${x[1]}</b><span>${sub}</span></span>${on ? (me ? '<span class="act" style="color:var(--up)">Подключено ✓</span>' : IC.chev) : ""}</button>`;
   }).join("");
   return `<h2 style="margin:6px 0 16px;font-size:24px">Выберите биржу</h2>${rows}`;
 }
 function exDetail(code, e) {
-  const ok = subOk(), x = XD[code], t = x.n, mine = !!e.st && XC() === code, back = '<div class="top"><button class="back" data-xv="">‹ Биржи</button></div>';
-  if (e.st && !mine) return `${back}<h2 style="margin-bottom:10px">${t}</h2>
-  <div class="warn">Одновременно работает одна биржа. Чтобы подключить другую, сначала отключите текущую.</div>
-  <button class="go red" data-dx="1" style="margin-top:4px">Отключить ${XN()}</button>`;
+  const ok = subOk(), x = XD[code], t = x.n, k = XS()[code], mine = !!k, primary = !!e.st && XC() === code, back = '<div class="top"><button class="back" data-xv="">‹ Биржи</button></div>';
+  const second = !!e.st && !primary;
   if (!ok && !e.st) return `${back}<h2 style="margin-bottom:10px">${t}</h2>
   <div class="card plan"><div class="d">${PLAN.days} дней</div><div class="p">${PLAN.usdt} USDT</div><div class="muted">Чтобы подключить биржу, нужна подписка</div></div>
   <button class="go" data-pay="1">Оплатить подписку</button>
   <p class="note">${AP() ? "Оплата в USDT через @CryptoBot: бот пришлёт счёт в чат, подписка включится сама. Потом снова нажмите «📱 Приложение»: откроется подключение " + t + "." : "После оплаты откроется подключение " + t + ": ключ без права вывода средств."}</p>`;
   return `${back}<h2 style="margin-bottom:12px">${t}</h2>
   ${!ok ? '<div class="warn">Подписка закончилась: новые реальные сделки не запускаются. Продлите подписку.</div><button class="go" data-pay="1" style="margin-bottom:12px">Продлить подписку</button>' : ""}
-  <div class="card"><div class="sw"><div><b>${t}</b><div class="muted">${mine ? "Подключено · ключ " + e.kp + (e.d ? " · проверен " + e.d : "") : "Не подключено"}</div></div><span class="badge ${mine ? "up" : "dn"}">${mine ? "подключено" : "нет"}</span></div></div>
-  ${code === "bingx" ? '<p class="muted" style="margin:10px 0">На BingX бот торгует фьючерсами. Цены и сигналы бот берёт с Bybit, а ордера отправляет на BingX: цена исполнения может немного отличаться.</p>' : ""}
-  ${mine ? `<button class="go red" data-dx="1" style="margin-top:4px">Отключить ${t}</button>` : `<div class="card"><h2>Как подключить</h2>
+  <div class="card"><div class="sw"><div><b>${t}</b><div class="muted">${mine ? "Подключено · ключ " + esc(k.kp) + (k.d ? " · проверен " + esc(k.d) : "") : "Не подключено"}</div></div><span class="badge ${mine ? "up" : "dn"}">${mine ? "подключено" : "нет"}</span></div></div>
+  ${primary ? `<p class="muted" style="margin:10px 0">Основная биржа: на ней торгуют реальные боты.</p>` : mine ? `<p class="muted" style="margin:10px 0">Вторая биржа: свой ключ, баланс и позиции в разделе AI. Реальные боты торгуют на ${XN()}.</p>` : second ? `<p class="muted" style="margin:10px 0">Можно подключить второй биржей со своим ключом: реальные боты останутся на ${XN()}, а в разделе AI появятся баланс, позиции и закрытие на ${t}.</p>` : ""}
+  ${code === "bingx" ? '<p class="muted" style="margin:10px 0">На BingX бот торгует фьючерсами. Сигналы KeelSteady AI для BingX считаются по ценам и свечам BingX; сигналы «по просадке» и цены в обычной торговле пока берутся с Bybit.</p>' : ""}
+  ${mine ? `<button class="go red" data-dx="${code}" style="margin-top:4px">Отключить ${t}</button>` : `<div class="card"><h2>Как подключить</h2>
   ${(D.xr || {})[code] ? `<button class="ghost" data-xr="${code}" style="margin:0 0 12px">Нет аккаунта на ${t}? Зарегистрироваться ↗</button>` : ""}
   <ol class="steps">${x.steps}</ol>
   <input class="inp" id="ak" placeholder="API Key" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -1690,7 +1753,9 @@ document.addEventListener("click", e => {
     return;
   }
   else if (b.dataset.dx) {
-    sendBot({a: "disconnect"});
+    const n = b.dataset.dx === "bybit" || b.dataset.dx === "bingx" ? b.dataset.dx : XC(), main = !(D.ex && D.ex.st) || n === XC();
+    aiConfirm(`Отключить ${n === "bingx" ? "BingX" : "Bybit"}? Ключ будет удалён из бота.` + (main ? " Это основная биржа: реальные боты выключатся." : " Основная биржа и реальные боты не затрагиваются."))
+      .then(ok => { if (ok) sendBot(b.dataset.dx === "bybit" || b.dataset.dx === "bingx" ? {a: "disconnect", n: b.dataset.dx} : {a: "disconnect"}); });
     return;
   }
   else if (b.dataset.save) {
