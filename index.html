@@ -556,7 +556,7 @@ const aiInit = () => { try { const w = window.Telegram && Telegram.WebApp; if (w
 // Пропуск от бота (кнопка «Открыть Keel Steady»: там Telegram подпись не передаёт). Проверяет только сервер.
 const AI_PASS = (() => { try { const v = new URLSearchParams(location.search).get("ak") || ""; return /^\d+\.\d+\.[0-9a-f]{32}$/.test(v) ? v : ""; } catch (e) { return ""; } })();
 const AI_INIT = aiInit() || AI_PASS;   // есть хоть что-то для проверки на сервере
-const AI_LBL = {capital: ["Торговый капитал (виртуальный), USDT", 10], leverage: ["Плечо, ×", 1], grid_orders: ["Ордеров в сетке", 1], grid_overlap: ["Перекрытие сетки, %", .5], grid_offset: ["Отступ до первой докупки, %", .1],
+const AI_LBL = {capital: ["Торговый капитал (виртуальный), USDT", 10], grid_orders: ["Ордеров в сетке", 1], grid_overlap: ["Перекрытие сетки, %", .5], grid_offset: ["Отступ до первой докупки, %", .1],
   take_profit: ["Тейк-профит, % от залога", .5], stop_loss: ["Стоп-лосс, % от залога", 1], max_daily_loss: ["Дневной лимит убытка, USDT", .5], min_confidence: ["Минимальная уверенность AI, %", .01]};
 let tmode = (() => { try { return localStorage.getItem("ks_tmode") === "ai" ? "ai" : "man"; } catch (e) { return "man"; } })();
 const AIS = {st: "idle", d: null, err: "", busy: false, edit: null, at: 0, msg: "", ok: false};   // ok: сервер подтвердил админа, только тогда виден переключатель
@@ -587,7 +587,7 @@ async function aiPost(path, body, okMsg) {
   await aiLoad(true);
 }
 const aiTyping = () => { const a = document.activeElement; return !!(a && (a.id === "aiq" || a.id === "aibud")); };
-setInterval(() => { if (tab === "ctl" && tmode === "ai" && AIS.ok && !document.hidden && !AIS.edit && !aiTyping()) aiLoad(true); }, 15000);
+setInterval(() => { if (tab === "ctl" && tmode === "ai" && AIS.ok && !document.hidden && !AIS.edit && !aiTyping()) { aiLoad(true); aiAccount(); } }, 15000);
 if (AI_INIT) setTimeout(() => aiLoad(true), 1500);   // тихая проверка: нет подписки или подписи — раздел AI не показывается
 // Отправка действия боту. Запуск кнопкой клавиатуры (нет initData) — sendData, как раньше.
 // Запуск синей кнопкой меню — через сервер: он проверяет подпись Telegram и передаёт то же действие в бота.
@@ -616,10 +616,41 @@ function aiConfirm(text) {
 }
 // ----- Монета и лимит USDT: одна монета на пользователя, каталог всех USDT-фьючерсов Bybit -----
 const aiCoinName = sym => String(sym || "").split("/")[0];
+const aiEx = () => (AIS.d && AIS.d.settings.exchange) || "bybit";
 async function aiMarkets() {
-  if (AIS.mk || AIS.mkBusy) return; AIS.mkBusy = true;
-  try { AIS.mk = (await aiCall("/api/ai/markets")).items || []; } catch (e) { AIS.mkErr = aiNet(e); }
+  const ex = aiEx();
+  if ((AIS.mk && AIS.mkFor === ex) || AIS.mkBusy) return; AIS.mkBusy = true;
+  try { AIS.mk = (await aiCall("/api/ai/markets?ex=" + ex)).items || []; AIS.mkFor = ex; AIS.mkErr = ""; } catch (e) { AIS.mkErr = aiNet(e); }
   AIS.mkBusy = false; aiShowResults();
+}
+// Счёт биржи пользователя (через бота, только чтение): не чаще раза в минуту
+async function aiAccount(force) {
+  if (AIS.accBusy || (!force && AIS.accAt && Date.now() - AIS.accAt < 60000)) return;
+  AIS.accBusy = true;
+  try { AIS.acc = await aiCall("/api/ai/account"); AIS.accErr = ""; } catch (e) { AIS.accErr = aiNet(e); }
+  AIS.accBusy = false; AIS.accAt = Date.now(); if (tab === "ctl" && tmode === "ai") render();
+}
+const AI_LEVS = [1, 2, 3, 5, 10, 20, 25, 50, 75, 100, 125];
+function aiAccountCard(d) {
+  if (!AIS.acc && !AIS.accBusy && !AIS.accErr) setTimeout(() => aiAccount(true), 0);
+  const a = AIS.acc, exn = x => x === "bingx" ? "BingX" : "Bybit";
+  if (!a) return `<div class="card"><h2>Счёт биржи</h2><p class="muted">${esc(AIS.accErr || "Читаю баланс и позиции с вашей биржи…")}</p></div>`;
+  if (!a.connected) return `<div class="card"><h2>Счёт биржи</h2><p class="muted">Биржа не подключена. Подключите Bybit или BingX во вкладке «Биржа» — ключ без права вывода.</p></div>`;
+  const pos = (a.positions || []).map(x => `<div class="sum"><div class="kv" style="margin-top:0"><span><b>${esc(String(x.symbol).split("/")[0])}</b> · ${aiSide(x.side)} ×${aiNum(x.lev || 0, 0)}</span>${aiPnl(x.upnl || 0)}</div>
+      <div class="kv"><span>Количество · вход</span><b>${x.qty} · ${aiPx(x.entry || 0)}</b></div>
+      ${x.liq ? `<div class="kv"><span>Ликвидация</span><b class="dn">${aiPx(x.liq)}</b></div>` : ""}
+      <div class="kv"><span>Кто открыл</span><b>${x.mine ? "бот" : "вручную"}</b></div>
+      ${x.mine ? `<button class="go red sm" data-aixclose="${esc(x.symbol)}" style="margin-top:8px">Принудительно закрыть позицию</button>` : '<p class="muted" style="margin-top:6px">Позицию открыли вручную: бот её не закрывает.</p>'}</div>`).join("");
+  return `<div class="card"><h2>Счёт биржи</h2>
+    <div class="kv"><span>Подключена</span><b>${exn(a.exchange)} · ключ ${esc(a.mask || "")}</b></div>
+    ${a.mismatch ? `<div class="warn">В AI выбрана ${exn(a.selected_exchange)}, а подключена ${exn(a.exchange)}. Торговать AI будет на подключённой бирже: выберите её или подключите другую во вкладке «Биржа».</div>` : ""}
+    ${a.error ? `<div class="warn">${esc(a.error)}</div>` : ""}
+    <div class="kv"><span>Свободная маржа</span><b>${a.usdt_free != null ? aiNum(a.usdt_free, 2) + " USDT" : "—"}</b></div>
+    <div class="kv"><span>Всего USDT</span><b>${a.usdt_total != null ? aiNum(a.usdt_total, 2) + " USDT" : "—"}</b></div>
+    <div class="hint">Открытые позиции на бирже</div>${pos || '<p class="muted">Открытых позиций нет.</p>'}
+    ${AIS.prev ? `<div class="sum" style="margin-top:10px">${esc(AIS.prev)}</div>` : ""}
+    <p class="muted" style="margin-top:8px">Данные с вашей биржи, только чтение. Обновляются раз в минуту.</p>
+    <button class="ghost" data-aiacc="1" style="margin-top:6px">Обновить счёт</button></div>`;
 }
 function aiResultsHtml() {
   if (!AIS.mk) return `<p class="muted">${esc(AIS.mkErr || "Загружаю список монет Bybit…")}</p>`;
@@ -636,7 +667,10 @@ function aiCoinCard(d) {
   if (!AIS.mk && !AIS.mkBusy && !AIS.mkErr) setTimeout(aiMarkets, 0);
   const minB = d.min_budget, low = minB != null && s.budget < minB;
   const pend = (d.switch_pending || []).map(aiCoinName).join(", ");
+  const exs = s.exchange || "bybit", acc = AIS.acc && AIS.acc.symbol, maxL = (acc && acc.max_lev) || c.max_lev || 125;
+  const levs = AI_LEVS.filter(v => v <= maxL);
   return `<div class="card"><h2>Монета и лимит</h2>
+    <div class="hint">Биржа</div><div class="seg"><button data-aiex="bybit" class="${exs === "bybit" ? "on" : ""}"${dis}>Bybit USDT Linear</button><button data-aiex="bingx" class="${exs === "bingx" ? "on" : ""}"${dis}>BingX USDT Perpetual</button></div>
     <div class="kv"><span>Монета AI</span><b>${esc(c.base || aiCoinName(s.symbol))}${c.name ? " · " + esc(c.name) : ""}</b></div>
     ${c.price ? `<div class="kv"><span>Цена</span><b>${aiPx(c.price)}</b></div>` : ""}
     <div class="kv"><span>Лимит маржи</span><b>${aiNum(s.budget, 2)} USDT</b></div>
@@ -645,6 +679,8 @@ function aiCoinCard(d) {
     ${low ? `<div class="warn">Лимит меньше минимального ордера биржи для ${esc(c.base || "")}: увеличьте лимит или плечо, иначе AI не войдёт в сделку.</div>` : ""}
     ${d.last_skip ? `<div class="warn">AI пропустил вход: ${esc(d.last_skip)}</div>` : ""}
     ${pend ? `<div class="warn">Позиция по ${esc(pend)} не закрывается принудительно: AI ведёт её до тейка или стопа. Новые входы по ${esc(c.base || "")} — после её закрытия.</div>` : ""}
+    <div class="hint">Плечо (биржа разрешает до ×${aiNum(maxL, 0)}${acc && acc.lev ? `, на бирже сейчас ×${aiNum(acc.lev, 0)}` : ""})</div>
+    <div class="chips wrap">${levs.map(v => `<button data-ailev="${v}" class="${s.leverage === v ? "on" : ""}"${dis}>×${v}</button>`).join("")}</div>
     <div class="hint">Сменить монету</div>
     <input class="inp" id="aiq" placeholder="Поиск: тикер или название (BTC, Solana…)" autocomplete="off" value="${esc(AIS.q || "")}"${dis}>
     <div id="aires">${aiResultsHtml()}</div>
@@ -673,6 +709,10 @@ async function aiClose(body) {
   AIS.busy = false; AIS.posting = false;
   await aiLoad(true);
   window.scrollTo(0, 0);
+}
+// Источник входа фьючерсного бота: просадка (как раньше) или сигналы KeelSteady AI
+function aiEntrySwitch(sc, o) {
+  return `<div class="hint">Источник входа</div><div class="seg"><button data-set="${sc}:en:dip" class="${o.en !== "ai" ? "on" : ""}">Просадка</button><button data-set="${sc}:en:ai" class="${o.en === "ai" ? "on" : ""}">KeelSteady AI</button></div>`;
 }
 function tradeModeSwitch() {
   if (!AIS.ok) return "";
@@ -727,7 +767,7 @@ function aiPanel() {
     ${AIS.edit ? '<button class="ghost" data-aicancel="1" style="margin-top:8px">Отменить изменения</button>' : `<button class="ghost" data-aipreset="1" style="margin-top:8px"${dis}>Вернуть «Умеренный»</button>`}</div>`;
   const foot = `<p class="muted" style="margin:4px 2px 12px">Testnet, LIVE=0: реальные ордера не отправляются. Результаты виртуальные и не гарантируют прибыль. ${AIS.at ? "Обновлено " + new Date(AIS.at).toLocaleTimeString("ru-RU") + "." : ""}</p>
     <button class="ghost" data-air="1">Обновить</button>${AIS.err ? `<div class="warn">${esc(AIS.err)}</div>` : ""}`;
-  return head + aiCoinCard(d) + bal + pnl + pos + sig + hist + risk + foot;
+  return head + aiCoinCard(d) + aiAccountCard(d) + bal + pnl + pos + sig + hist + risk + foot;
 }
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b || b.disabled) return;
@@ -751,6 +791,36 @@ document.addEventListener("click", e => {
     const nm = aiCoinName(ds.aisym), open = (AIS.d.positions || []).length;
     aiConfirm(`Торговать AI монетой ${nm}?` + (open ? " Открытая позиция по прежней монете не закроется: AI доведёт её до тейка или стопа, а новые входы будут по " + nm + "." : ""))
       .then(ok => { if (ok) { AIS.q = ""; aiPost("/api/ai/settings", {symbol: ds.aisym}, "Монета AI: " + nm + "."); } });
+    return;
+  }
+  else if (ds.aiex && AIS.d) {
+    if (ds.aiex === AIS.d.settings.exchange) return;
+    const nm = ds.aiex === "bingx" ? "BingX" : "Bybit";
+    aiConfirm(`Переключить AI на ${nm}? Монета станет BTC — выберите нужную из списка ${nm}.`).then(ok => {
+      if (!ok) return; AIS.mk = null; AIS.q = ""; AIS.acc = null;
+      aiPost("/api/ai/settings", {exchange: ds.aiex, symbol: "BTC/USDT:USDT"}, "Биржа AI: " + nm + ".");
+    });
+    return;
+  }
+  else if (ds.ailev && AIS.d) {
+    const v = +ds.ailev;
+    if (v === AIS.d.settings.leverage) return;
+    const open = (AIS.d.positions || []).length;
+    aiConfirm(`Плечо ×${v} для новых сделок AI?` + (open ? " Плечо уже открытой позиции не изменится." : "") + " На бирже плечо выставится перед следующим входом.")
+      .then(ok => { if (ok) aiPost("/api/ai/settings", {leverage: v}, "Плечо: ×" + v + "."); });
+    return;
+  }
+  else if (ds.aiacc) { aiAccount(true); return; }
+  else if (ds.aixclose) {   // этап «только чтение»: проверка владельца и предпросмотр ордера, без отправки
+    aiConfirm(`Проверить закрытие позиции ${ds.aixclose.split("/")[0]}? На этом этапе ордер не отправится — покажем, что будет отправлено.`).then(async ok => {
+      if (!ok) return;
+      try {
+        const r = await aiCall("/api/ai/close_preview", {symbol: ds.aixclose}), p = r.plan || {};
+        AIS.prev = r.ok ? `Будет отправлено: рыночный ордер ${p.side === "buy" ? "BUY" : "SELL"} ${p.qty} ${String(p.symbol).split("/")[0]}, reduceOnly` + (p.positionIdx != null ? `, positionIdx ${p.positionIdx}` : `, ${p.positionSide}`) + ". " + (r.note || "")
+          : "Закрыть нельзя: " + (r.why || "нет данных");
+      } catch (e) { AIS.prev = "⚠️ " + aiNet(e); }
+      render();
+    });
     return;
   }
   else if (ds.aibq) { AIS.bud = ds.aibq; const el = document.getElementById("aibud"); if (el) el.value = ds.aibq; return; }
@@ -824,7 +894,8 @@ function confirmBox(k, nm, n, allDry) {
       : (one ? `<span>Продать</span> <b>${nm}</b> <span>на вашем ${XN()} по рыночной цене. Это реальная сделка.</span>` : "<span>Продать все открытые монеты на вашем " + XN() + " по рыночной цене. Это реальные сделки.</span>"))
     : (one ? `<span>Закрыть сделку</span> <b>${nm}</b> <span>по текущей цене? Результат зачтётся на демо-счёте.</span>` : "<span>Закрыть все сделки этого раздела по текущей цене? Результат зачтётся на демо-счёте.</span>");
   return `<div class="warn">${q}${note ? `<div style="margin-top:6px">${note}</div>` : ""}</div>
-    <div class="chips" style="margin:8px 0 10px"><button data-cly="${k}:${nm}" style="background:#3a1b22;color:#f0706f;border-color:#4a1d20">Да, закрыть</button><button data-cln="1">Отмена</button></div>`;
+    <div class="chips" style="margin:8px 0 10px"><button data-cly="${k}:${nm}" style="background:#3a1b22;color:#f0706f;border-color:#4a1d20">Да, закрыть</button><button data-cln="1">Отмена</button></div>
+    ${one && (k === "f" || k === "rf") ? `<div class="hint">Или закрыть часть позиции${rfk ? " (рыночный ордер reduce-only)" : ""}:</div><div class="chips" style="margin:6px 0 10px">${[25, 50, 75].map(v => `<button data-clp="${k}:${nm}:${v / 100}">${v}%</button>`).join("")}</div>` : ""}`;
 }
 // Ордера сетки открытой сделки: исполненные (✓) и те, что бот ещё купит (○), и цель. g = [первая цена входа, залоги, отступы %, цель].
 function gridBox(p, g) {
@@ -956,7 +1027,7 @@ const fix = o => { if (o.ind > o.ov) o.ind = o.ov; };
 const planOf = o => { const n = o.n, w = Array.from({length: n}, (_, k) => Math.pow(1 + o.mart / 100, k)), sum = w.reduce((a, b) => a + b, 0);
   return {sizes: w.map(x => o.dep * x / sum), lv: n === 1 ? [] : n === 2 ? [o.ov] : Array.from({length: n - 1}, (_, k) => o.ind + (o.ov - o.ind) * k / (n - 2))}; };
 
-const mkF = o => { const f = o.fv || {}, c = f.dc || {}; return {sd: f.sd === "short" ? "short" : "long", nm: f.nm || "Фьючерсный бот", dep: f.dep || 20, tf: !!f.tf, sa: !!f.sa, ssl: !!f.ssl, n: c.n || 1, ov: c.overlap || 10, ind: c.indent || 1, mart: c.mart || 0, m: f.m || "off", lev: f.lev || 3, coins: (f.coins || ["BTC"]).slice(), buy: f.buy || 5, tp: f.tp || 1, sl: f.sl === 0 ? 0 : f.sl || 10, tb: f.tb || 0, re: !!f.re, rj: f.rj || 0, dsl: f.ds || 0, cd: f.cd == null ? 6 : f.cd}; };
+const mkF = o => { const f = o.fv || {}, c = f.dc || {}; return {sd: f.sd === "short" ? "short" : "long", nm: f.nm || "Фьючерсный бот", dep: f.dep || 20, tf: !!f.tf, sa: !!f.sa, ssl: !!f.ssl, n: c.n || 1, ov: c.overlap || 10, ind: c.indent || 1, mart: c.mart || 0, m: f.m || "off", lev: f.lev || 3, coins: (f.coins || ["BTC"]).slice(), buy: f.buy || 5, tp: f.tp || 1, sl: f.sl === 0 ? 0 : f.sl || 10, tb: f.tb || 0, re: !!f.re, rj: f.rj || 0, dsl: f.ds || 0, cd: f.cd == null ? 6 : f.cd, en: f.en === "ai" ? "ai" : "dip", ad: f.ad || "auto", ac: f.ac || 0.68}; };
 const stp = (sc, k, label, v, rk) => { const r = RNG[rk || k], [lo, hi, st] = r, bs = r[3] || st; return `<div class="hint">${label}</div><div class="stp"><button data-st="${sc}:${k}:${-bs}:${rk || ""}">−</button><input class="inp" type="number" inputmode="decimal" min="${lo}" max="${hi}" step="${st}" value="${v}" data-nv="${sc}:${k}:${rk || ""}"><button data-st="${sc}:${k}:${bs}:${rk || ""}">+</button></div>`; };
 const chipSet = (sc, k, opts, cur, f, cl = "") => `<div class="chips ${cl}">${opts.map(x => `<button data-set="${sc}:${k}:${x}" class="${cur === x ? "on" : ""}">${f(x)}</button>`).join("")}</div>`;
 // Выбор пар: любая пара Bybit. Список берём из pairs.json (его создаёт бот, команда /pairs); пока файла нет, показываем краткий встроенный список.
@@ -1065,7 +1136,7 @@ function spotMsg(sc) {
 
 function futMsg() {
   const o = cfgOf("f"), rf = isRF("f");
-  return {a: rf ? "rfut" : "fut", b: rf ? rfb : fb, ...(rf ? {cd: o.cd == null ? 6 : o.cd} : {m: o.m, cd: o.cd == null ? 6 : o.cd}), side: o.sd, lev: o.lev, coins: o.coins, name: o.nm, dep: o.dep, n: o.n, overlap: o.ov, indent: o.ind, mart: o.mart, tf: o.tf, sa: o.sa, ssl: o.ssl, buy: o.buy, tp: o.tp, sl: o.sl, tb: o.tb, re: o.re};
+  return {a: rf ? "rfut" : "fut", b: rf ? rfb : fb, ...(rf ? {cd: o.cd == null ? 6 : o.cd} : {m: o.m, cd: o.cd == null ? 6 : o.cd}), side: o.sd, lev: o.lev, coins: o.coins, name: o.nm, dep: o.dep, n: o.n, overlap: o.ov, indent: o.ind, mart: o.mart, tf: o.tf, sa: o.sa, ssl: o.ssl, buy: o.buy, tp: o.tp, sl: o.sl, tb: o.tb, re: o.re, entry: o.en || "dip", ai_dir: o.ad || "auto", ai_conf: o.ac || 0.68};
 }
 
 function sumLine(o, fut, sh, dip, L, cl) {
@@ -1077,6 +1148,11 @@ function sumLine(o, fut, sh, dip, L, cl) {
   if (fut && o.cd != null && o.cd !== 6) sl += en ? ", " + o.cd + " h pause after a trade" : ", пауза после сделки " + o.cd + " ч";
   const tr_ = o.tb ? (en ? `, trailing: sell when profit falls ${o.tb}% from its peak` : `, догоняющий тейк: продажа при откате прибыли на ${o.tb}% от максимума`) : "";
   const re_ = o.re ? (en ? " Reinvest is on." : " Реинвест включён.") : "";
+  if (fut && o.en === "ai") {   // вход по сигналам KeelSteady AI: направление выбирает AI
+    const dir = o.ad === "long" ? (en ? "LONG only" : "только LONG") : o.ad === "short" ? (en ? "SHORT only" : "только SHORT") : "LONG/SHORT";
+    return en ? `: KeelSteady AI signals (${dir}, confidence from ${Math.round(o.ac * 100)}%) x${L}, ${o.n}-order grid${grid}, close at +${o.tp}% profit on margin${tr_}, ${sl}. Coins: ${co}, bot deposit ${o.dep} USDT.${re_}`
+      : `: вход по сигналам KeelSteady AI (${dir}, уверенность от ${Math.round(o.ac * 100)}%) x${L}, сетка из ${o.n} ордеров${grid}, прибыль +${o.tp}% на залог${tr_}, ${sl}. Монеты: ${co}, депозит бота ${o.dep} USDT.${re_}`;
+  }
   if (en) return `: ${fut ? (sh ? "SHORT" : "LONG") + " x" + L + ", " : ""}${sh ? "open on a rise of" : "buy on a dip of"} ${o.buy}%${o.tf ? (sh ? " (downtrend only)" : " (uptrend only)") : ""}, ${o.n}-order grid${grid}, ${fut ? "close at +" + o.tp + "% profit on margin" : "sell on a +" + o.tp + "% rise"}${tr_}, ${sl}. Coins: ${co}, ${fut ? "bot deposit " + o.dep + " USDT" : "deposit " + o.dep + " USDT per pair"}.${re_}`;
   return `: ${fut ? (sh ? "SHORT" : "LONG") + " x" + L + ", " : ""}${sh ? "открытие при росте" : "покупка при просадке"} ${o.buy}%${o.tf ? (sh ? " (только в нисходящем тренде)" : " (только в тренде)") : ""}, сетка из ${o.n} ордеров${grid}, ${fut ? "закрытие при прибыли +" + o.tp + "% на залог" : "продажа при росте на " + o.tp + "%"}${tr_}, ${sl}. Монеты: ${co}, ${fut ? "депозит бота " + o.dep + " USDT" : "депозит " + o.dep + " USDT на пару"}.${re_}`;
 }
@@ -1107,7 +1183,12 @@ function wizard(sc) {
     ${fut ? `<div class="hint">Плечо</div>${chipSet("f", "lev", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], o.lev, x => "x" + x, "wrap")}${L > 1 ? `<div class="warn">При x${L} ${sh ? "рост" : "падение"} цены примерно на ${(100 / L).toFixed(1)}% ликвидирует позицию: весь залог сгорит. Цена может «проскочить» стоп-лосс.</div>` : '<p class="muted">x1: без плеча, ликвидации нет.</p>'}` : ""}
     ${reBlock}
     ${fut ? (rf ? (XC() === "bingx" ? '<p class="muted" style="margin-top:8px">Залог берётся с фьючерсного счёта BingX. Режим маржи (кросс или изолированная) настраивайте в BingX, режим позиции бот определит сам.</p>' : '<p class="muted" style="margin-top:8px">Залог берётся с вашего счёта Bybit. Режим маржи (кросс или изолированная) и одностороннюю позицию настраивайте в самом Bybit.</p>') + (bal != null && total > bal ? '<div class="warn">Свободных денег на ' + XN() + ' меньше, чем депозит бота: часть ордеров биржа не примет. Пополните счёт или уменьшите депозит.</div>' : "") : '<p class="muted" style="margin-top:8px">Пока фьючерсы работают на демо-счёте: депозит берётся из виртуальных денег.</p>') : (real && bal != null && total > bal ? '<div class="warn">Свободных денег на ' + XN() + ' меньше, чем сумма депозитов: часть ордеров биржа не примет. Пополните счёт или уменьшите депозит.</div>' : "")}`;
-  else if (ws === 4) body = `<h2>Условия входа</h2>${fut ? `<p class="muted">${sh ? "SHORT: бот открывает позицию, когда цена выросла от минимума за сутки." : "LONG: бот покупает, когда цена упала от максимума за сутки."}${rf ? (sh ? " После первой сделки рост считается от минимума после закрытия." : " После первой сделки просадка считается от максимума после продажи.") : ""}</p>` : card("dip", "На просадке: активнее", "Бот покупает, когда цена упала на выбранный процент за сутки. Проверка каждые 5 минут.") + card("trend", "По тренду: спокойнее", "Бот держит монету, пока цена выше средней за 200 дней, и выходит, когда рост заканчивается. Проверка раз в сутки.")}
+  else if (ws === 4 && fut && o.en === "ai") body = `<h2>Условия входа</h2>${aiEntrySwitch(sc, o)}
+    <p class="muted">Вход по сигналам KeelSteady AI: AI анализирует монету бота и сам выбирает LONG или SHORT. Депозит, плечо, сетка, тейк-профит и стоп-лосс — из настроек этого бота. Новые сделки — только при действующей подписке и по свежему сигналу.</p>
+    <div class="hint">Направление</div><div class="chips">${[["auto", "Авто"], ["long", "Только LONG"], ["short", "Только SHORT"]].map(x => `<button data-set="${sc}:ad:${x[0]}" class="${o.ad === x[0] ? "on" : ""}">${x[1]}</button>`).join("")}</div>
+    <div class="hint">Минимальная уверенность AI</div><div class="chips">${[[0.6, "60%"], [0.68, "68%"], [0.75, "75%"], [0.85, "85%"]].map(x => `<button data-set="${sc}:ac:${x[0]}" class="${Math.abs(o.ac - x[0]) < 1e-9 ? "on" : ""}">${x[1]}</button>`).join("")}</div>
+    <p class="muted">После закрытия сделки бот войдёт снова только по новому сигналу и не раньше паузы после сделки.</p>`;
+  else if (ws === 4) body = `<h2>Условия входа</h2>${fut ? aiEntrySwitch(sc, o) : ""}${fut ? `<p class="muted">${sh ? "SHORT: бот открывает позицию, когда цена выросла от минимума за сутки." : "LONG: бот покупает, когда цена упала от максимума за сутки."}${rf ? (sh ? " После первой сделки рост считается от минимума после закрытия." : " После первой сделки просадка считается от максимума после продажи.") : ""}</p>` : card("dip", "На просадке: активнее", "Бот покупает, когда цена упала на выбранный процент за сутки. Проверка каждые 5 минут.") + card("trend", "По тренду: спокойнее", "Бот держит монету, пока цена выше средней за 200 дней, и выходит, когда рост заканчивается. Проверка раз в сутки.")}
     ${presetBlock(sc, o, fut, sh)}${tunedBlock(sc, o, fut, sh)}
     ${dip ? stp(sc, "buy", sh ? "Открывать SHORT, если цена выросла за сутки на, %" : "Покупать, если цена упала за сутки на, %", o.buy) + (sh ? tgl("tf", o.tf, "Только в нисходящем тренде", "Открывать шорт, только если цена ниже средней за 200 дней.") : tgl("tf", o.tf, "Только в тренде", "Не покупать просадку, если цена ниже средней за 200 дней.")) : ""}`;
   else if (ws === 5) body = !dip ? `<h2>Ордера</h2><p class="muted">В режиме «по тренду» бот входит одним ордером на весь депозит. Сетка нужна только для режима «на просадке».</p>` :
@@ -1450,6 +1531,11 @@ document.addEventListener("click", e => {
     qc = b.dataset.qx;   // реальные боты: сначала подтверждение в карточке
   }
   else if (b.dataset.qxn) qc = "";
+  else if (b.dataset.clp) {   // частичное закрытие фьючерсной позиции: 25/50/75%
+    const [k, nm, fr] = b.dataset.clp.split(":");
+    sendBot({a: "close", k, s: nm, frac: +fr});
+    return;
+  }
   else if (b.dataset.cly) {
     const [k, nm] = b.dataset.cly.split(":");
     sendBot({a: "close", k, s: nm});
