@@ -582,6 +582,24 @@ async function aiPost(path, body, okMsg) {
 }
 setInterval(() => { if (tab === "ctl" && tmode === "ai" && AIS.ok && !document.hidden && !AIS.edit) aiLoad(true); }, 15000);
 if (AI_INIT) setTimeout(() => aiLoad(true), 1500);   // тихая проверка: нет подписки или подписи — раздел AI не показывается
+// Отправка действия боту. Запуск кнопкой клавиатуры (нет initData) — sendData, как раньше.
+// Запуск синей кнопкой меню — через сервер: он проверяет подпись Telegram и передаёт то же действие в бота.
+async function sendBot(m, quiet) {
+  const data = typeof m === "string" ? m : JSON.stringify(m), init = aiInit();
+  if (!init) {
+    if (T() && T().sendData) { T().sendData(data); return true; }
+    say("Откройте приложение из Telegram синей кнопкой «KeelSteady» в чате с ботом."); return false;
+  }
+  try {
+    const r = await fetch(AI_API + "/api/bot/action", {method: "POST", cache: "no-store",
+      headers: {"Content-Type": "application/json", "X-Telegram-Init-Data": init}, body: JSON.stringify({data})});
+    let j = null; try { j = await r.json(); } catch (e) {}
+    if (!r.ok) { if (!quiet) say((j && typeof j.detail === "string" && j.detail) || ("Ошибка сервера " + r.status)); return false; }
+  } catch (e) { if (!quiet) say("Нет связи с сервером. Проверьте интернет и попробуйте ещё раз."); return false; }
+  if (!quiet) say("Отправлено. Ответ придёт в чат с ботом.");
+  try { if (T() && T().close) T().close(); } catch (e) {}
+  return true;
+}
 function tradeModeSwitch() {
   if (!AIS.ok) return "";
   return `<div class="seg"><button data-tm="man" class="${tmode === "man" ? "on" : ""}">Обычная торговля</button><button data-tm="ai" class="${tmode === "ai" ? "on" : ""}">AI Trading</button></div>`;
@@ -1313,7 +1331,7 @@ document.addEventListener("click", e => {
     if (m[1] === "f" || m[1] === "rf") pickBot(m[1] === "rf", +(m[2] || 1));
   }
   else if (b.dataset.qs || b.dataset.qx || b.dataset.qxc) {   // «Включить» / «Остановить» в карточке бота: действует сохранённая настройка, не черновик
-    const go = m => { if (T() && T().sendData) T().sendData(JSON.stringify(m)); else say("Откройте приложение из Telegram, кнопкой в чате с ботом."); };
+    const go = m => { sendBot(m); };
     const km = /^(s|f|r|rf)(\d?)$/.exec(b.dataset.qs || b.dataset.qx || b.dataset.qxc) || [], bn = +(km[2] || 1);
     if (b.dataset.qs) { go({s: {on: true}, f: {a: "fut", m: "dry", b: bn}, r: {a: "real", m: "live", per: JSON.parse(rgbase || "{}").dep || 0}, rf: {a: "rfstart", b: bn}}[km[1]]); return; }
     if (b.dataset.qxc) { go(km[1] === "r" ? {a: "realstop"} : {a: "rfstop", b: bn}); return; }
@@ -1324,25 +1342,25 @@ document.addEventListener("click", e => {
   else if (b.dataset.qxn) qc = "";
   else if (b.dataset.cly) {
     const [k, nm] = b.dataset.cly.split(":");
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "close", k, s: nm})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "close", k, s: nm});
     return;
   }
   else if (b.dataset.xv !== undefined) { tab = "ex"; xv = b.dataset.xv; window.scrollTo(0, 0); }
   else if (b.dataset.ch) { if (T() && T().openTelegramLink) T().openTelegramLink(CHANNEL); else window.open(CHANNEL, "_blank"); return; }
   else if (b.dataset.rep) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "report", on: !D.rep})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "report", on: !D.rep});
     return;
   }
   else if (b.dataset.trial) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "trial"})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "trial"});
     return;
   }
   else if (b.dataset.refpay) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "refpay"})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "refpay"});
     return;
   }
   else if (b.dataset.pay) {
-    if (AP()) { if (T() && T().sendData) T().sendData(JSON.stringify({a: "pay"})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом."); return; }
+    if (AP()) { sendBot({a: "pay"}); return; }
     tab = "me"; pv = "sub"; window.scrollTo(0, 0);
   }
   else if (b.dataset.r) range = b.dataset.r;
@@ -1374,12 +1392,12 @@ document.addEventListener("click", e => {
   else if (b.dataset.pres) { const x = PRES[+b.dataset.pres]; if (x) { if (T() && T().openLink) T().openLink(x.u); else window.open(x.u, "_blank"); } return; }
   else if (b.dataset.wp) {
     if (b.dataset.wp === "ask") wp = true; else if (b.dataset.wp === "no") wp = false;
-    else { if (T() && T().sendData) T().sendData(JSON.stringify({a: "wipe"})); return; }
+    else { sendBot({a: "wipe"}); return; }
   }
   else if (b.dataset.demo) {
     if (b.dataset.demo === "ask") dr = true;
     else if (b.dataset.demo === "no") dr = false;
-    else { if (T() && T().sendData) T().sendData(JSON.stringify({a: "demo_reset"})); return; }
+    else { sendBot({a: "demo_reset"}); return; }
   }
   else if (b.dataset.set) { const [sc, k, v] = b.dataset.set.split(":"); cfgOf(sc)[k] = isNaN(+v) ? v : +v; }
   else if (b.dataset.pre) {
@@ -1400,7 +1418,7 @@ document.addEventListener("click", e => {
   }
   else if (b.dataset.tune) {
     const sc = b.dataset.tune, msg = sc === "f" ? futMsg() : spotMsg(sc);
-    if (T() && T().sendData) T().sendData(JSON.stringify({...msg, a: "tune", k: slotKey(sc)})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({...msg, a: "tune", k: slotKey(sc)});
     return;
   }
   else if (b.dataset.st) { const [sc, k, v, rk] = b.dataset.st.split(":"), o = cfgOf(sc); o[k] = clampK(k, o[k] + +v, rk); fix(o); }
@@ -1418,12 +1436,12 @@ document.addEventListener("click", e => {
     else o[k] = !o[k];
   }
   else if (b.dataset.bt) {
-    if (T() && T().sendData) T().sendData(JSON.stringify(b.dataset.bt === "f" ? {...futMsg(), a: "backtest", mk: "fut"} : {...spotMsg(b.dataset.bt), a: "backtest"})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot(b.dataset.bt === "f" ? {...futMsg(), a: "backtest", mk: "fut"} : {...spotMsg(b.dataset.bt), a: "backtest"});
     return;
   }
   else if (b.dataset.sv) {
     const msg = b.dataset.sv === "f" ? futMsg() : spotMsg(b.dataset.sv);
-    if (T() && T().sendData) T().sendData(JSON.stringify(msg)); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot(msg);
     return;
   }
   else if (b.dataset.lv) ctl.lv = +b.dataset.lv;
@@ -1434,16 +1452,15 @@ document.addEventListener("click", e => {
   else if (b.dataset.rm) rc.m = b.dataset.rm;
   else if (b.dataset.rp) rc.per = +b.dataset.rp;
   else if (b.dataset.rsave) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "real", m: rc.m, per: rc.per}));
-    else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "real", m: rc.m, per: rc.per});
     return;
   }
   else if (b.dataset.rstart) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "real", m: "live", per: rg.dep})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "real", m: "live", per: rg.dep});
     return;
   }
   else if (b.dataset.rstop) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "realstop"}));
+    sendBot({a: "realstop"});
     return;
   }
   else if (b.dataset.bn) {   // ряд «Ваши боты»: открыть бота или начать нового
@@ -1452,36 +1469,33 @@ document.addEventListener("click", e => {
     if (n) pickBot(real, n);
   }
   else if (b.dataset.bdel) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "botdel", r: isRF("f") ? 1 : 0, b: +b.dataset.bdel})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "botdel", r: isRF("f") ? 1 : 0, b: +b.dataset.bdel});
     return;
   }
   else if (b.dataset.rfstart) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "rfstart", b: rfb})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "rfstart", b: rfb});
     return;
   }
   else if (b.dataset.rfstop) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "rfstop", b: rfb})); else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "rfstop", b: rfb});
     return;
   }
   else if (b.dataset.cx) {
     const k = document.getElementById("ak").value.trim(), sc = document.getElementById("as").value.trim();
     if (!/^[A-Za-z0-9]{8,128}$/.test(k) || !/^[A-Za-z0-9]{16,128}$/.test(sc)) { say("Проверьте ключи: они состоят из букв и цифр, без пробелов."); return; }
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "connect", n: XD[xv] ? xv : "bybit", k, s: sc}));
-    else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "connect", n: XD[xv] ? xv : "bybit", k, s: sc});
     return;
   }
   else if (b.dataset.refresh) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "refresh"}));
-    else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({a: "refresh"});
     return;
   }
   else if (b.dataset.dx) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({a: "disconnect"}));
+    sendBot({a: "disconnect"});
     return;
   }
   else if (b.dataset.save) {
-    if (T() && T().sendData) T().sendData(JSON.stringify({on: ctl.on, lev: ctl.lv, mode: ctl.md, buy: ctl.buy, tp: ctl.tp, sl: ctl.sl}));
-    else say("Откройте приложение из Telegram, кнопкой в чате с ботом.");
+    sendBot({on: ctl.on, lev: ctl.lv, mode: ctl.md, buy: ctl.buy, tp: ctl.tp, sl: ctl.sl});
     return;
   }
   else return;
@@ -1504,7 +1518,14 @@ const guessLang = () => { const c = (tgUser().language_code || "").slice(0, 2); 
   if (!lang) lang = guessLang();
   staticLang();
   const q = new URLSearchParams(location.search).get("d");
-  if (!q) { setApp('<div class="card"><h2>Откройте приложение из бота</h2><p class="muted">Нажмите «📱 Приложение» в чате с ботом Keel Steady.</p></div>'); return; }
+  if (!q) {
+    if (aiInit()) {   // синяя кнопка ещё без ваших данных: бот обновит её (действие refresh), потом откройте снова
+      setApp('<div class="card"><h2>Готовлю ваши данные</h2><p class="muted">Бот обновит кнопку «KeelSteady» и напишет в чат. Затем откройте приложение снова.</p></div>');
+      sendBot({a: "refresh"}, true).then(ok => { if (!ok) setApp('<div class="card"><h2>Откройте приложение из бота</h2><p class="muted">Отправьте боту /app, затем нажмите синюю кнопку «KeelSteady» слева от поля ввода.</p></div>'); });
+      return;
+    }
+    setApp('<div class="card"><h2>Откройте приложение из бота</h2><p class="muted">Нажмите синюю кнопку «KeelSteady» слева от поля ввода в чате с ботом Keel Steady.</p></div>'); return;
+  }
   try { D = await decode(q); } catch (e) { setApp('<div class="card"><h2>Не удалось прочитать данные</h2><p class="muted">Обновите Telegram и снова нажмите «📱 Приложение» в боте.</p></div>'); return; }
   const l = new Date().toISOString().slice(0, 10).split("-"); cm = [+l[0], +l[1] - 1];
   if (!lang) lang = D.lg || guessLang();
