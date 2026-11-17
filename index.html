@@ -547,7 +547,8 @@ function pnlCards(tot, dy, unreal) {
 
 // ===== AI Trading (KeelSteady AI) — отдельный раздел во вкладке «Торговля». Ручную торговлю не меняет:
 // «Обычная торговля» показывает прежнюю вкладку как есть. Данные берутся с API на сервере по HTTPS;
-// каждый запрос подписан Telegram (initData), управлять агентом может только администратор.
+// каждый запрос подписан Telegram (initData); доступ — по подписке Keel Steady (проверяет сервер), админу бесплатно.
+// У каждого пользователя свои настройки, виртуальный счёт, позиции и история.
 // Режим testnet без ордеров (LIVE=0): агент ведёт виртуальный счёт по настоящим ценам Bybit.
 const AI_API = "https://70-34-209-15.sslip.io";
 const AI_INIT = (() => { try { const w = window.Telegram && Telegram.WebApp; if (w && w.initData) return w.initData; return new URLSearchParams(location.hash.slice(1)).get("tgWebAppData") || ""; } catch (e) { return ""; } })();
@@ -576,7 +577,7 @@ async function aiPost(path, body, okMsg) {
   AIS.busy = false; await aiLoad(true);
 }
 setInterval(() => { if (tab === "ctl" && tmode === "ai" && !document.hidden && !AIS.edit) aiLoad(true); }, 15000);
-if (AI_INIT) setTimeout(() => aiLoad(true), 1500);   // тихая проверка: не админ или нет подписи — раздел AI не показывается
+if (AI_INIT) setTimeout(() => aiLoad(true), 1500);   // тихая проверка: нет подписки или подписи — раздел AI не показывается
 function tradeModeSwitch() {
   if (!AIS.ok) return "";
   return `<div class="seg"><button data-tm="man" class="${tmode === "man" ? "on" : ""}">Обычная торговля</button><button data-tm="ai" class="${tmode === "ai" ? "on" : ""}">AI Trading</button></div>`;
@@ -593,12 +594,18 @@ function aiPanel() {
     return `<div class="card"><h2>AI Trading</h2><div class="warn">${esc(AIS.err || "Не удалось загрузить данные.")}</div><button class="go" data-air="1" style="margin-top:12px">Обновить</button></div>`;
   }
   const d = AIS.d, b = d.balance, p = d.pnl, s = AIS.edit || d.settings, on = d.enabled, online = d.worker === "online";
-  const head = `<div class="card"><div class="coin"><h2>Smart Auto</h2><button class="tg ${on ? "on" : ""}" data-aion="${on ? 0 : 1}" aria-label="Smart Auto"></button></div>
-    <p class="muted" style="margin-top:6px">${on ? "Включён: AI сам выбирает LONG или SHORT и входит, когда сигнал подтверждён и риск-проверки пройдены." : "Выключен: агент только показывает сигналы и новых сделок не открывает."}</p>
+  const ac = d.access || {ok: true}, lock = !ac.ok, dis = lock ? " disabled" : "";
+  const lockMsg = !lock ? "" : ac.status === "error" ? (ac.error || "Проверка подписки временно недоступна.") + " Команды AI временно недоступны."
+    : ac.status === "denied" ? "Управление AI закрыто администратором." : "Подписка не активна: управление AI закрыто. Оформить или продлить: вкладка «Профиль» → «Подписка».";
+  const accLine = ac.status === "admin" ? "Администратор · бесплатно" : ac.status === "error" ? "не удалось проверить" : ac.until ? (ac.ok ? "Активна до " : "Закончилась ") + esc(ac.until) : "Нет";
+  const head = `<div class="card"><div class="coin"><h2>Smart Auto</h2><button class="tg ${on ? "on" : ""}" data-aion="${on ? 0 : 1}" aria-label="Smart Auto"${dis}></button></div>
+    ${lock ? `<div class="warn">${esc(lockMsg)} Открытые позиции ведутся до тейка или стопа, история сохранена.</div>` : ""}
+    <p class="muted" style="margin-top:6px">${lock ? "Новые входы сейчас не открываются." : on ? "Включён: AI сам выбирает LONG или SHORT и входит, когда сигнал подтверждён и риск-проверки пройдены." : "Выключен: агент только показывает сигналы и новых сделок не открывает."}</p>
     <div class="kv"><span>Рынок</span><b>${esc(d.market)}</b></div>
     <div class="kv"><span>Режим</span><b>${d.testnet ? "TESTNET" : "MAINNET"} · ${d.live ? "ордера включены" : "без ордеров"}</b></div>
+    <div class="kv"><span>Подписка</span><b class="${ac.ok ? "" : "dn"}">${accLine}</b></div>
     <div class="kv"><span>Агент на сервере</span><b class="${online ? "up" : "dn"}">${online ? "работает" : "не отвечает"}</b></div>
-    <div class="hint">Направление</div><div class="chips">${[["auto", "Smart Auto"], ["long", "Только LONG"], ["short", "Только SHORT"]].map(x => `<button data-aidir="${x[0]}" class="${d.settings.direction === x[0] ? "on" : ""}">${x[1]}</button>`).join("")}</div>
+    <div class="hint">Направление</div><div class="chips">${[["auto", "Smart Auto"], ["long", "Только LONG"], ["short", "Только SHORT"]].map(x => `<button data-aidir="${x[0]}" class="${d.settings.direction === x[0] ? "on" : ""}"${dis}>${x[1]}</button>`).join("")}</div>
     ${AIS.msg ? `<p class="muted">${esc(AIS.msg)}</p>` : ""}</div>`;
   const bal = `<div class="card"><h2>Баланс</h2><div class="big">${money(b.equity)}</div><p class="muted">Виртуальный счёт агента, старт ${money(b.start)}</p>
     <div class="kv"><span>Доступный капитал</span><b>${money(b.available)}</b></div><div class="kv"><span>В сделках (залог)</span><b>${money(b.in_use)}</b></div>
@@ -615,9 +622,9 @@ function aiPanel() {
   const lim = d.limits || {};
   const risk = `<div class="card"><h2>Настройки риска</h2><p class="muted">Профиль «Умеренный». Плечо ×${d.leverage} фиксировано, одна позиция одновременно, пауза ${d.pause_hours} ч после сделки.</p>
     ${Object.entries(AI_LBL).map(([k, [t, st]]) => { const v = s[k], pct = k === "min_confidence", show = pct ? Math.round(v * 100) : v, l = lim[k] || [0, 0];
-      return `<div class="hint">${t} <span class="muted">(${pct ? Math.round(l[0] * 100) + "–" + Math.round(l[1] * 100) : l[0] + "–" + l[1]})</span></div><div class="stp"><button data-ais="${k}" data-d="-${st}">−</button><div class="inp">${show}</div><button data-ais="${k}" data-d="${st}">+</button></div>`; }).join("")}
-    <button class="go" data-aisave="1" style="margin-top:14px" ${AIS.edit ? "" : "disabled"}>Сохранить настройки</button>
-    ${AIS.edit ? '<button class="ghost" data-aicancel="1" style="margin-top:8px">Отменить изменения</button>' : `<button class="ghost" data-aipreset="1" style="margin-top:8px">Вернуть «Умеренный»</button>`}</div>`;
+      return `<div class="hint">${t} <span class="muted">(${pct ? Math.round(l[0] * 100) + "–" + Math.round(l[1] * 100) : l[0] + "–" + l[1]})</span></div><div class="stp"><button data-ais="${k}" data-d="-${st}"${dis}>−</button><div class="inp">${show}</div><button data-ais="${k}" data-d="${st}"${dis}>+</button></div>`; }).join("")}
+    <button class="go" data-aisave="1" style="margin-top:14px" ${AIS.edit && !lock ? "" : "disabled"}>Сохранить настройки</button>
+    ${AIS.edit ? '<button class="ghost" data-aicancel="1" style="margin-top:8px">Отменить изменения</button>' : `<button class="ghost" data-aipreset="1" style="margin-top:8px"${dis}>Вернуть «Умеренный»</button>`}</div>`;
   const foot = `<p class="muted" style="margin:4px 2px 12px">Testnet, LIVE=0: реальные ордера не отправляются. Результаты виртуальные и не гарантируют прибыль. ${AIS.at ? "Обновлено " + new Date(AIS.at).toLocaleTimeString("ru-RU") + "." : ""}</p>
     <button class="ghost" data-air="1">Обновить</button>${AIS.err ? `<div class="warn">${esc(AIS.err)}</div>` : ""}`;
   return head + bal + pnl + pos + sig + hist + risk + foot;
