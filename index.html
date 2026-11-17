@@ -658,6 +658,22 @@ document.addEventListener("input", e => {
   if (e.target && e.target.id === "aiq") { AIS.q = e.target.value; aiShowResults(); }
   else if (e.target && e.target.id === "aibud") AIS.bud = e.target.value;
 });
+// Принудительное закрытие: повторная отправка заблокирована, пока ждём ответ; результат — под переключателем
+async function aiClose(body) {
+  if (AIS.posting) return;
+  AIS.posting = true; AIS.msg = "Закрываю…"; render();
+  for (let i = 0; i < 50 && AIS.busy; i++) await new Promise(r => setTimeout(r, 100));
+  AIS.busy = true;
+  try {
+    const r = await aiCall("/api/ai/close", body), c = r.closed || [];
+    AIS.msg = c.length ? "✅ Закрыто: " + c.map(x => aiCoinName(x.symbol) + " " + (x.pnl >= 0 ? "+" : "−") + Math.abs(x.pnl).toFixed(2) + " USDT").join(", ") + ". " + (r.note || "")
+      : "Открытых позиций не было.";
+    if ((r.no_price || []).length) AIS.msg += " ⚠️ Не удалось закрыть (нет цены): " + r.no_price.map(aiCoinName).join(", ") + ".";
+  } catch (e) { AIS.msg = "⚠️ " + aiNet(e); }
+  AIS.busy = false; AIS.posting = false;
+  await aiLoad(true);
+  window.scrollTo(0, 0);
+}
 function tradeModeSwitch() {
   if (!AIS.ok) return "";
   return `<div class="seg"><button data-tm="man" class="${tmode === "man" ? "on" : ""}">Обычная торговля</button><button data-tm="ai" class="${tmode === "ai" ? "on" : ""}">AI Trading</button></div>`;
@@ -695,10 +711,14 @@ function aiPanel() {
     <div class="kv"><span>Комиссии</span><b>${money(p.fees)}</b></div>${d.daily_limit_hit ? '<div class="warn">Дневной лимит убытка достигнут: до конца дня (UTC) новых входов не будет.</div>' : ""}</div>`;
   const pos = `<div class="card"><h2>Текущие позиции</h2>${d.positions.length ? d.positions.map(x => `<div class="sum"><div class="kv" style="margin-top:0"><span><b>${aiSym(x.sym)}</b> · ${aiSide(x.side)} ×${x.lev || d.leverage}</span>${aiPnl(x.upnl)}</div>
       <div class="kv"><span>Вход / цена</span><b>${aiPx(x.entry)} / ${aiPx(x.price)}</b></div><div class="kv"><span>Залог · ордера</span><b>${money(x.margin)} · ${x.filled} из ${x.orders}</b></div>
-      <div class="kv"><span>Тейк / стоп</span><b>${aiPx(x.tp_px)} / ${aiPx(x.sl_px)}</b></div></div>`).join("") : '<p class="muted">Открытых позиций нет.</p>'}</div>`;
+      <div class="kv"><span>Тейк / стоп</span><b>${aiPx(x.tp_px)} / ${aiPx(x.sl_px)}</b></div>
+      <button class="go red sm" data-aiclose="${esc(x.sym)}" style="margin-top:10px"${AIS.posting ? " disabled" : ""}>ПРИНУДИТЕЛЬНОЕ ЗАКРЫТИЕ</button></div>`).join("")
+      + `<button class="go red" data-aicloseall="1" style="margin-top:12px"${AIS.posting ? " disabled" : ""}>Принудительно закрыть все мои позиции</button>
+      <p class="muted" style="margin-top:6px">Закрытие по рыночной цене сразу, без учёта сигналов, тейка и стопа. Касается только ваших позиций. После закрытия AI войдёт снова только по новому сигналу.</p>`
+      : '<p class="muted">Открытых позиций нет.</p>'}</div>`;
   const sig = `<div class="card"><h2>Сигналы AI</h2>${Object.keys(d.signals || {}).length ? Object.entries(d.signals).map(([k, v]) => `<div class="kv"><span><b>${aiSym(k)}</b> ${aiSide(v.side)}</span><b>${Math.round((v.confidence || 0) * 100)}% · ${v.allowed ? '<span class="up">вход разрешён</span>' : '<span class="muted">ждёт</span>'}</b></div>
       <p class="muted" style="font-size:12px;margin-top:2px">${esc(v.reason || "")}${d.paused[k] ? " · пауза до " + aiWhen(d.paused[k]) : ""}</p>`).join("") : '<p class="muted">Сигналов пока нет: агент обновляет их раз в минуту.</p>'}</div>`;
-  const hist = `<div class="card"><h2>История сделок</h2>${d.history.length ? d.history.slice(0, 15).map(h => `<div class="kv" style="gap:10px"><span>${aiSym(h.sym)} ${aiSide(h.side)} · ${h.why === "TP" ? "тейк" : h.why === "SL" ? "стоп" : esc(h.why)}<span class="muted" style="display:block;font-size:12px">${aiWhen(h.closed_at)} · ${aiPx(h.entry)} → ${aiPx(h.exit)}</span></span>${aiPnl(h.pnl)}</div>`).join("") : '<p class="muted">Закрытых сделок пока нет.</p>'}</div>`;
+  const hist = `<div class="card"><h2>История сделок</h2>${d.history.length ? d.history.slice(0, 15).map(h => `<div class="kv" style="gap:10px"><span>${aiSym(h.sym)} ${aiSide(h.side)} · ${h.why === "TP" ? "тейк" : h.why === "SL" ? "стоп" : h.why === "FORCE" ? "закрыта вручную" : esc(h.why)}<span class="muted" style="display:block;font-size:12px">${aiWhen(h.closed_at)} · ${aiPx(h.entry)} → ${aiPx(h.exit)}</span></span>${aiPnl(h.pnl)}</div>`).join("") : '<p class="muted">Закрытых сделок пока нет.</p>'}</div>`;
   const lim = d.limits || {};
   const risk = `<div class="card"><h2>Настройки риска</h2><p class="muted">Ваши личные настройки: у других подписчиков свои. Профиль «Умеренный» по умолчанию, одна позиция одновременно, пауза ${d.pause_hours} ч после сделки. Капитал меняется, когда нет открытых позиций; плечо открытой позиции не меняется.</p>
     ${Object.entries(AI_LBL).map(([k, [t, st]]) => { const v = s[k], pct = k === "min_confidence", show = pct ? Math.round(v * 100) : v, l = lim[k] || [0, 0];
@@ -738,6 +758,19 @@ document.addEventListener("click", e => {
     const el = document.getElementById("aibud"), v = Number(String(el ? el.value : AIS.bud).replace(",", "."));
     if (!(v >= 5 && v <= 100000)) { say("Лимит — число от 5 до 100000 USDT."); return; }
     AIS.bud = null; aiPost("/api/ai/settings", {budget: Math.round(v * 100) / 100}, "Лимит: " + v + " USDT.");
+    return;
+  }
+  else if (ds.aiclose && AIS.d) {   // одна позиция: одно подтверждение
+    const nm = aiCoinName(ds.aiclose);
+    aiConfirm(`Принудительно закрыть позицию ${nm} по рыночной цене сейчас? Сигналы AI, тейк и стоп не учитываются. Отменить нельзя.`)
+      .then(ok => { if (ok) aiClose({symbol: ds.aiclose}); });
+    return;
+  }
+  else if (ds.aicloseall && AIS.d) {   // все позиции: двойное подтверждение
+    const n = (AIS.d.positions || []).length;
+    aiConfirm(`Принудительно закрыть все ваши позиции AI (${n}) по рыночной цене?`)
+      .then(ok => ok && aiConfirm(`Точно закрыть ВСЕ ${n} позиций? Это действие нельзя отменить.`))
+      .then(ok => { if (ok) aiClose({all: true}); });
     return;
   }
   else if (ds.aicancel) AIS.edit = null;
