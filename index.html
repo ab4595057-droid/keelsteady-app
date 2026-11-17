@@ -606,6 +606,13 @@ async function sendBot(m, quiet) {
   try { if (T() && T().close) T().close(); } catch (e) {}
   return true;
 }
+// Подтверждение: окно Telegram (showConfirm), вне Telegram — обычное окно браузера.
+function aiConfirm(text) {
+  return new Promise(res => {
+    try { const w = window.Telegram && Telegram.WebApp; if (w && w.showConfirm && w.isVersionAtLeast && w.isVersionAtLeast("6.2")) { w.showConfirm(text, ok => res(!!ok)); return; } } catch (e) {}
+    try { res(window.confirm(text)); } catch (e) { res(false); }
+  });
+}
 function tradeModeSwitch() {
   if (!AIS.ok) return "";
   return `<div class="seg"><button data-tm="man" class="${tmode === "man" ? "on" : ""}">Обычная торговля</button><button data-tm="ai" class="${tmode === "ai" ? "on" : ""}">AI Trading</button></div>`;
@@ -662,7 +669,12 @@ document.addEventListener("click", e => {
   const ds = b.dataset;
   if (ds.tm) { tmode = ds.tm === "ai" ? "ai" : "man"; try { localStorage.setItem("ks_tmode", tmode); } catch (er) {} if (tmode === "ai" && AIS.st !== "load") aiLoad(); window.scrollTo(0, 0); }
   else if (ds.air) { aiLoad(); return; }
-  else if (ds.aion) { aiPost("/api/ai/control", {enabled: ds.aion === "1"}, ds.aion === "1" ? "Smart Auto включён." : "Smart Auto выключен."); return; }
+  else if (ds.aion) {   // включение — только после подтверждения (защита от случайного касания); выключение — сразу
+    if (ds.aion !== "1") { aiPost("/api/ai/control", {enabled: false}, "Smart Auto выключен."); return; }
+    aiConfirm("Включить Smart Auto? Агент начнёт сам открывать сделки по сигналам AI (сейчас виртуальные, LIVE=0).")
+      .then(ok => { if (ok) aiPost("/api/ai/control", {enabled: true}, "Smart Auto включён."); });
+    return;
+  }
   else if (ds.aidir && AIS.d) { aiPost("/api/ai/settings", {direction: ds.aidir}, "Направление сохранено."); return; }
   else if (ds.ais && AIS.d) {
     const k = ds.ais, l = (AIS.d.limits || {})[k] || [-1e9, 1e9], cur = Object.assign({}, AIS.edit || AIS.d.settings);
