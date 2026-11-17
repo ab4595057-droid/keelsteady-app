@@ -671,12 +671,15 @@ function aiCoinCard(d) {
   const levs = AI_LEVS.filter(v => v <= maxL);
   return `<div class="card"><h2>Монета и лимит</h2>
     <div class="hint">Биржа</div><div class="seg"><button data-aiex="bybit" class="${exs === "bybit" ? "on" : ""}"${dis}>Bybit USDT Linear</button><button data-aiex="bingx" class="${exs === "bingx" ? "on" : ""}"${dis}>BingX USDT Perpetual</button></div>
+    ${AIS.acc ? `<p class="muted">${AIS.acc.connected ? `Ключ подключён: ${AIS.acc.exchange === "bingx" ? "BingX" : "Bybit"}.` + (AIS.acc.exchange !== exs ? ` Реальная торговля на ${exs === "bingx" ? "BingX" : "Bybit"} начнётся после подключения ключа ${exs === "bingx" ? "BingX" : "Bybit"} во вкладке «Биржа»; настройки AI для каждой биржи хранятся отдельно.` : "") : "Ключ биржи не подключён: AI торгует только на виртуальном счёте."}</p>` : ""}
     <div class="kv"><span>Монета AI</span><b>${esc(c.base || aiCoinName(s.symbol))}${c.name ? " · " + esc(c.name) : ""}</b></div>
     ${c.price ? `<div class="kv"><span>Цена</span><b>${aiPx(c.price)}</b></div>` : ""}
     <div class="kv"><span>Лимит маржи</span><b>${aiNum(s.budget, 2)} USDT</b></div>
     <div class="kv"><span>Плечо</span><b>×${d.effective_leverage || s.leverage}${c.max_lev ? ` <span class="muted">(биржа до ×${aiNum(c.max_lev, 0)})</span>` : ""}</b></div>
-    ${minB != null ? `<div class="kv"><span>Минимум для входа</span><b class="${low ? "dn" : ""}">≈ ${aiNum(minB, 2)} USDT</b></div>` : ""}
-    ${low ? `<div class="warn">Лимит меньше минимального ордера биржи для ${esc(c.base || "")}: увеличьте лимит или плечо, иначе AI не войдёт в сделку.</div>` : ""}
+    ${minB != null ? `<div class="kv"><span>Минимальный ордер ${esc(exs === "bingx" ? "BingX" : "Bybit")}</span><b>${d.min_order ? `${d.min_order.qty} ${esc(c.base || "")} ≈ ${aiNum(d.min_order.usdt, 2)} USDT` : "—"}</b></div>
+      <div class="kv"><span>Минимум залога для входа (×${d.effective_leverage || s.leverage})</span><b class="${low ? "dn" : ""}">${aiNum(minB, 2)} USDT</b></div>
+      ${d.min_grid_budget ? `<div class="kv"><span>Для всей сетки из ${s.grid_orders} ордеров</span><b>${aiNum(d.min_grid_budget, 2)} USDT</b></div>` : ""}` : ""}
+    ${low ? `<div class="warn">Лимит ${aiNum(s.budget, 2)} USDT меньше минимального ордера ${esc(c.base || "")}: нужно не меньше ${aiNum(minB, 2)} USDT залога при плече ×${d.effective_leverage || s.leverage}. Пока лимит меньше, AI ордер не отправит.</div>` : ""}
     ${d.last_skip ? `<div class="warn">AI пропустил вход: ${esc(d.last_skip)}</div>` : ""}
     ${pend ? `<div class="warn">Позиция по ${esc(pend)} не закрывается принудительно: AI ведёт её до тейка или стопа. Новые входы по ${esc(c.base || "")} — после её закрытия.</div>` : ""}
     <div class="hint">Плечо (биржа разрешает до ×${aiNum(maxL, 0)}${acc && acc.lev ? `, на бирже сейчас ×${aiNum(acc.lev, 0)}` : ""})</div>
@@ -796,9 +799,9 @@ document.addEventListener("click", e => {
   else if (ds.aiex && AIS.d) {
     if (ds.aiex === AIS.d.settings.exchange) return;
     const nm = ds.aiex === "bingx" ? "BingX" : "Bybit";
-    aiConfirm(`Переключить AI на ${nm}? Монета станет BTC — выберите нужную из списка ${nm}.`).then(ok => {
+    aiConfirm(`Переключить AI на ${nm}? Настройки ${nm} (монета, лимит, плечо) восстановятся, настройки текущей биржи сохранятся.`).then(ok => {
       if (!ok) return; AIS.mk = null; AIS.q = ""; AIS.acc = null;
-      aiPost("/api/ai/settings", {exchange: ds.aiex, symbol: "BTC/USDT:USDT"}, "Биржа AI: " + nm + ".");
+      aiPost("/api/ai/settings", {exchange: ds.aiex}, "Биржа AI: " + nm + ".");
     });
     return;
   }
