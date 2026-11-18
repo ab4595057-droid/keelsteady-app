@@ -881,10 +881,10 @@ function aiPanel() {
       <p class="muted" style="margin-top:6px">Закрытие по рыночной цене сразу, без учёта сигналов, тейка и стопа. Касается только ваших позиций. После закрытия AI войдёт снова только по новому сигналу.</p>`
       : '<p class="muted">Открытых позиций нет.</p>'}</div>`;
   const sig = `<div class="card"><h2>Сигналы AI</h2>${Object.keys(d.signals || {}).length ? Object.entries(d.signals).map(([k, v]) => `<div class="kv"><span><b>${aiSym(k)}</b> ${aiSide(v.side)}</span><b>${Math.round((v.confidence || 0) * 100)}% · ${v.allowed ? '<span class="up">вход разрешён</span>' : '<span class="muted">ждёт</span>'}</b></div>
-      <p class="muted" style="font-size:12px;margin-top:2px">${esc(v.reason || "")}${d.paused[k] ? " · пауза до " + aiWhen(d.paused[k]) : ""}</p>`).join("") : '<p class="muted">Сигналов пока нет: агент обновляет их раз в минуту.</p>'}</div>`;
+      <p class="muted" style="font-size:12px;margin-top:2px">${esc(v.reason || "")}${(d.paused || {})[k] ? " · пауза до " + aiWhen(d.paused[k]) : ""}</p>`).join("") : '<p class="muted">Сигналов пока нет: агент обновляет их раз в минуту.</p>'}</div>`;
   const hist = `<div class="card"><h2>История сделок</h2>${d.history.length ? d.history.slice(0, 15).map(h => `<div class="kv" style="gap:10px"><span>${aiSym(h.sym)} ${aiSide(h.side)} · ${h.why === "TP" ? "тейк" : h.why === "SL" ? "стоп" : h.why === "FORCE" ? "закрыта вручную" : esc(h.why)}<span class="muted" style="display:block;font-size:12px">${aiWhen(h.closed_at)} · ${aiPx(h.entry)} → ${aiPx(h.exit)}</span></span>${aiPnl(h.pnl)}</div>`).join("") : '<p class="muted">Закрытых сделок пока нет.</p>'}</div>`;
   const lim = d.limits || {};
-  const risk = `<div class="card"><h2>Настройки риска</h2><p class="muted">Ваши личные настройки: у других подписчиков свои. Профиль «Умеренный» по умолчанию, одна позиция одновременно, пауза ${d.pause_hours} ч после сделки. Капитал меняется, когда нет открытых позиций; плечо открытой позиции не меняется.</p>
+  const risk = `<div class="card"><h2>Настройки риска</h2><p class="muted">Ваши личные настройки: у других подписчиков свои. Профиль «Умеренный» по умолчанию, одна позиция одновременно. Паузы после сделки нет: новый вход — только по новому подтверждённому сигналу AI. Капитал меняется, когда нет открытых позиций; плечо открытой позиции не меняется.</p>
     ${Object.entries(AI_LBL).map(([k, [t, st]]) => { const v = s[k], pct = k === "min_confidence", show = pct ? Math.round(v * 100) : v, l = lim[k] || [0, 0];
       return `<div class="hint">${t} <span class="muted">(${pct ? Math.round(l[0] * 100) + "–" + Math.round(l[1] * 100) : l[0] + "–" + l[1]})</span></div><div class="stp"><button data-ais="${k}" data-d="-${st}"${dis}>−</button><div class="inp">${show}</div><button data-ais="${k}" data-d="${st}"${dis}>+</button></div>`; }).join("")}
     <button class="go" data-aisave="1" style="margin-top:14px" ${AIS.edit && !lock ? "" : "disabled"}>Сохранить настройки</button>
@@ -1096,7 +1096,7 @@ function botCard(b) {
     ${say ? `<p class="muted" style="margin-top:8px">${say}</p>` : ""}
     ${R("Монеты", cl.map(esc).join(", "))}${R("Депозит", fut ? `${o.dep} USDT на бота` : `${o.dep} USDT на пару`)}${R("Вход", entry)}
     ${dip ? R("Сетка ордеров", o.n > 1 ? `из ${o.n} ордеров: перекрытие ${o.ov}%, отступ ${o.ind}%, мартингейл ${o.mart}%` : "без докупок") : ""}
-    ${R("Выход", dip ? J([`тейк-профит +${o.tp}%`, o.tb ? `догоняет прибыль: откат ${o.tb}%` : "", o.sl ? `стоп-лосс −${o.sl}%` : "без стоп-лосса", fut && o.dsl ? `аварийный стоп −${o.dsl}% депозита` : "", fut && o.cd !== 6 ? `пауза после сделки ${o.cd} ч` : ""]) : "когда цена опускается ниже средней")}
+    ${R("Выход", dip ? J([`тейк-профит +${o.tp}%`, o.tb ? `догоняет прибыль: откат ${o.tb}%` : "", o.sl ? `стоп-лосс −${o.sl}%` : "без стоп-лосса", fut && o.dsl ? `аварийный стоп −${o.dsl}% депозита` : "", fut && o.en === "ai" ? "после сделки — вход только по новому сигналу AI, без паузы" : fut && o.cd !== 6 ? `пауза после сделки ${o.cd} ч` : ""]) : "когда цена опускается ниже средней")}
     ${o.re && (fut || b.real || o.md === "dip") ? R("Реинвест", J(["включён", `итог закрытых сделок ${money(o.rj || 0, 1)}`])) : ""}
     ${dip && stop ? R("Остановка бота", stop) : ""}
     ${dzBlock(b, o, on, dip, sh, cl)}
@@ -1268,7 +1268,8 @@ function sumLine(o, fut, sh, dip, L, cl) {
   if (!dip) return en ? `: holds coins while the price is above the 200-day average. Coins: ${co}, deposit ${o.dep} USDT per pair.` : `: держит монеты, пока цена выше средней за 200 дней. Монеты: ${co}, депозит ${o.dep} USDT на пару.`;
   let sl = o.sl ? (en ? "stop-loss −" + o.sl + "%" : "стоп-лосс −" + o.sl + "%") : (en ? "no stop-loss" : "без стоп-лосса");
   if (fut && o.dsl) sl += en ? ", emergency stop at a loss of " + o.dsl + "% of the pair deposit" : ", аварийный стоп при убытке " + o.dsl + "% депозита пары";
-  if (fut && o.cd != null && o.cd !== 6) sl += en ? ", " + o.cd + " h pause after a trade" : ", пауза после сделки " + o.cd + " ч";
+  if (fut && o.en === "ai") sl += en ? ", no pause after a trade: re-entry on a new AI signal" : ", без паузы: новый вход по новому сигналу AI";
+  else if (fut && o.cd != null && o.cd !== 6) sl += en ? ", " + o.cd + " h pause after a trade" : ", пауза после сделки " + o.cd + " ч";
   const tr_ = o.tb ? (en ? `, trailing: sell when profit falls ${o.tb}% from its peak` : `, догоняющий тейк: продажа при откате прибыли на ${o.tb}% от максимума`) : "";
   const re_ = o.re ? (en ? " Reinvest is on." : " Реинвест включён.") : "";
   if (fut && o.en === "ai") {   // вход по сигналам KeelSteady AI: направление выбирает AI
