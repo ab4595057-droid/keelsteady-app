@@ -698,6 +698,7 @@ function aiAccountCard(d) {
   return `<div class="card"><h2>${title}</h2>
     <div class="kv"><span>Ключ</span><b>${esc(a.mask || "")}</b></div>
     ${others ? `<div class="kv"><span>Ещё подключена</span><b>${esc(others)}</b></div>` : ""}
+    ${ex === "bybit" && "position_mode" in a ? `<div class="kv"><span>Режим позиций</span><b class="${a.position_mode === "oneway" ? "" : "dn"}">${a.position_mode === "oneway" ? "One-way" : a.position_mode === "hedge" ? "Hedge — AI на Bybit работает только в One-way" : "не определён"}</b></div>${a.position_mode_why ? `<p class="muted">${esc(a.position_mode_why)}</p>` : ""}` : ""}
     ${a.bots_here === false && a.primary ? `<p class="muted">Реальные боты торгуют на ${aiExName(a.primary)}. Здесь — баланс и позиции ${aiExName(ex)} вашим ключом этой биржи.</p>` : ""}
     ${a.error ? `<div class="warn">${esc(a.error)}</div>` : ""}
     <div class="kv"><span>Свободная маржа</span><b>${a.usdt_free != null ? aiNum(a.usdt_free, 2) + " USDT" : "—"}</b></div>
