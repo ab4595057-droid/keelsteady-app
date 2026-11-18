@@ -652,7 +652,7 @@ function aiLiveLine() {
   if (!aiLiveOk()) return AIS.liveErr ? "нет связи с ботом" : "проверяю…";
   if (!l.connected) return "ключ биржи не подключён";
   if (!l.consent) return "не подтверждена";
-  if (!l.gate) return "подтверждена · ждёт запуска";
+  if (!l.gate) return "подтверждена · ждёт допуска";
   return l.ai_on ? "включена" : "подтверждена · Smart Auto выключен";
 }
 const aiLiveTone = () => { const l = AIS.live; return aiLiveOk() && l.consent && l.gate && l.ai_on ? "up" : aiLiveOk() && l.consent ? "" : "dn"; };
@@ -664,10 +664,11 @@ function aiLiveCard() {
   const dry = l.dry && (l.dry.opens || []).length ? `<div class="sum" style="margin-top:8px">Проверочный режим, ${new Date(l.dry.t * 1000).toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"})}: AI открыл бы ${l.dry.opens.map(o => esc(o.side.toUpperCase() + " " + o.sym.split("/")[0] + " на " + o.margin + " USDT")).join(", ")}. Ордер не отправлен.</div>` : "";
   let body;
   if (!l.connected) body = `<p class="muted">Подключите ключ ${xn} во вкладке «Биржа»: только права торговли фьючерсами, без вывода средств и переводов.</p>`;
-  else if (!l.consent) body = `<p class="muted">AI будет открывать и закрывать сделки на вашем счёте ${xn} по вашим настройкам: монета, лимит маржи, плечо, направление, тейк и стоп. Это реальные деньги, возможен убыток.</p>
+  else if (!l.consent) body = `<p class="muted">AI будет открывать и закрывать сделки на вашем счёте ${xn} по вашим настройкам: монета, лимит маржи, плечо, направление, тейк и стоп. Это реальные деньги, возможен убыток. При подтверждении бот заново проверит ключ: без вывода и переводов, с правом фьючерсов${ex === "bybit" ? ", режим позиций One-way" : ""}.</p>
     <button class="go" data-ailive="1"${AIS.posting ? " disabled" : ""}>Включить реальную торговлю на ${xn}</button>`;
   else body = `<div class="kv"><span>Подтверждено</span><b>${l.consent_at ? new Date(l.consent_at * 1000).toLocaleDateString("ru-RU") : "да"}</b></div>
-    ${!l.gate ? '<div class="warn">Реальные ордера ещё не включены на сервере. AI работает в проверочном режиме: решения считаются по ценам биржи, ордера не отправляются.</div>' : ""}
+    ${!l.gate ? '<div class="warn">Администратор ещё не выдал вашему аккаунту допуск к реальным ордерам. AI работает в проверочном режиме: решения считаются по ценам биржи, ордера не отправляются.</div>' : ""}
+    ${l.blocked ? `<div class="warn">Новые входы приостановлены: ${esc(l.blocked)}. Стоп и тейк открытой позиции стоят на бирже, закрытия продолжаются.</div>` : ""}
     ${!l.licensed ? '<div class="warn">Подписка не активна: новые сделки не открываются. Открытые позиции бот ведёт до тейка или стопа (они стоят на бирже).</div>' : ""}
     ${l.halt ? '<div class="warn">Дневной лимит убытка достигнут: новые входы — завтра (UTC).</div>' : ""}
     <div class="kv"><span>Результат сегодня</span>${aiPnl(l.pnl_day || 0)}</div><div class="kv"><span>Всего</span>${aiPnl(l.total || 0)}</div>
