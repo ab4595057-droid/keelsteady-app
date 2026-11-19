@@ -755,7 +755,8 @@ function aiCoinCard(d) {
   const minB = d.min_budget, low = minB != null && s.budget < minB;
   const pend = (d.switch_pending || []).map(aiCoinName).join(", ");
   const exs = s.exchange || "bybit", acc = AIS.acc && AIS.acc.connected && AIS.acc.exchange === exs && AIS.acc.symbol;
-  const exMax = (acc && acc.max_lev) || c.max_lev || null, maxL = Math.max(1, Math.min(AI_LEV_MAX, Math.floor(exMax || AI_LEV_MAX)));
+  const capL = (AIS.live && AIS.live.lev_cap) || AI_LEV_MAX;   // подписчикам — предел из бота (×10), администратору — ×50
+  const exMax = (acc && acc.max_lev) || c.max_lev || null, maxL = Math.max(1, Math.min(capL, Math.floor(exMax || capL)));
   const lv = AIS.lev != null ? AIS.lev : String(s.leverage), lvNum = Number(lv);
   return `<div class="card"><h2>Монета и лимит</h2>
     <div class="hint">Биржа</div><div class="seg"><button data-aiex="bybit" class="${exs === "bybit" ? "on" : ""}"${dis}>Bybit USDT Linear</button><button data-aiex="bingx" class="${exs === "bingx" ? "on" : ""}"${dis}>BingX USDT Perpetual</button></div>
