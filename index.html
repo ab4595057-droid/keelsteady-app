@@ -753,9 +753,14 @@ function aiCoinCard(d) {
   const s = d.settings, c = d.coin || {}, lock = !(d.access || {ok: true}).ok, dis = lock ? " disabled" : "";
   if ((!AIS.mk || AIS.mkFor !== aiEx()) && !AIS.mkBusy && !AIS.mkErr) setTimeout(aiMarkets, 0);
   const minB = d.min_budget, low = minB != null && s.budget < minB;
-  const pend = (d.switch_pending || []).map(aiCoinName).join(", ");
   const exs = s.exchange || "bybit", acc = AIS.acc && AIS.acc.connected && AIS.acc.exchange === exs && AIS.acc.symbol;
   const capL = (AIS.live && AIS.live.lev_cap) || AI_LEV_MAX;   // подписчикам — предел из бота (×10), администратору — ×50
+  // «не закрывается принудительно»: при реальной торговле на этой бирже — только по реальным позициям с бота (биржа),
+  // виртуальная книга демо тут ни при чём; без реальной торговли — по виртуальной позиции демо, с явной пометкой
+  const realOn = !!(AIS.live && AIS.live.ok && AIS.live.exchange === exs && (AIS.live.mode === "live" || AIS.live.consent || (AIS.live.positions || []).length));
+  const curCoin = aiCoinName(s.symbol);
+  const pend = (realOn ? (AIS.live.positions || []).map(p => aiCoinName(p.symbol)) : (d.switch_pending || []).map(aiCoinName))
+    .filter(x => x && x !== curCoin).join(", ");
   const exMax = (acc && acc.max_lev) || c.max_lev || null, maxL = Math.max(1, Math.min(capL, Math.floor(exMax || capL)));
   const lv = AIS.lev != null ? AIS.lev : String(s.leverage), lvNum = Number(lv);
   return `<div class="card"><h2>Монета и лимит</h2>
@@ -770,7 +775,8 @@ function aiCoinCard(d) {
       ${d.min_grid_budget ? `<div class="kv"><span>Для всей сетки из ${s.grid_orders} ордеров</span><b>${aiNum(d.min_grid_budget, 2)} USDT</b></div>` : ""}` : ""}
     ${low ? `<div class="warn">Лимит ${aiNum(s.budget, 2)} USDT меньше минимального ордера ${esc(c.base || "")}: нужно не меньше ${aiNum(minB, 2)} USDT залога при плече ×${d.effective_leverage || s.leverage}. Пока лимит меньше, AI ордер не отправит.</div>` : ""}
     ${d.last_skip ? `<div class="warn">AI пропустил вход: ${esc(d.last_skip)}</div>` : ""}
-    ${pend ? `<div class="warn">Позиция по ${esc(pend)} не закрывается принудительно: AI ведёт её до тейка или стопа. Новые входы по ${esc(c.base || "")} — после её закрытия.</div>` : ""}
+    ${pend ? (realOn ? `<div class="warn">Реальная позиция по ${esc(pend)} на ${esc(aiExName(exs))} не закрывается принудительно: AI ведёт её до тейка или стопа на бирже. Новые входы по ${esc(c.base || "")} — после её закрытия.</div>`
+      : `<div class="warn">Виртуальная позиция (демо) по ${esc(pend)} не закрывается принудительно: AI ведёт её до тейка или стопа. Новые демо-входы по ${esc(c.base || "")} — после её закрытия. На бирже этой позиции нет.</div>`) : ""}
     <div class="hint">Плечо ${esc(aiExName(exs))}: сейчас <b>×${s.leverage}</b>${acc && acc.lev ? ` · на бирже ×${aiNum(acc.lev, 0)}` : ""}</div>
     <div style="display:flex;gap:10px;align-items:center"><input type="range" id="ailevr" min="1" max="${maxL}" step="1" value="${Number.isInteger(lvNum) && lvNum >= 1 && lvNum <= maxL ? lvNum : Math.min(s.leverage, maxL)}" style="flex:1;accent-color:var(--gold, #d4a94c)" aria-label="Плечо"${dis}>
       <input class="inp" id="ailevn" type="number" inputmode="numeric" min="1" max="${maxL}" step="1" value="${esc(lv)}" style="width:86px;margin:0;text-align:center" aria-label="Плечо, число"${dis}></div>
