@@ -557,7 +557,7 @@ const aiInit = () => { try { const w = window.Telegram && Telegram.WebApp; if (w
 const AI_PASS = (() => { try { const v = new URLSearchParams(location.search).get("ak") || ""; return /^\d+\.\d+\.[0-9a-f]{32}$/.test(v) ? v : ""; } catch (e) { return ""; } })();
 const AI_INIT = aiInit() || AI_PASS;   // есть хоть что-то для проверки на сервере
 const AI_LBL = {grid_orders: ["Ордеров в сетке", 1], grid_overlap: ["Перекрытие сетки, %", .5], grid_offset: ["Отступ до первой докупки, %", .1],
-  take_profit: ["Тейк-профит, % от залога", .5], stop_loss: ["Стоп-лосс, % от залога", 1], max_daily_loss: ["Дневной лимит убытка, USDT", .5], min_confidence: ["Минимальная уверенность AI, %", .01]};
+  take_profit: ["Тейк-профит, % от залога", .5], stop_loss: ["Стоп-лосс, % от залога", 1], min_confidence: ["Минимальная уверенность AI, %", .01]};
 let tmode = (() => { try { return localStorage.getItem("ks_tmode") === "ai" ? "ai" : "man"; } catch (e) { return "man"; } })();
 const AIS = {st: "idle", d: null, err: "", busy: false, edit: null, at: 0, msg: "", ok: false};   // ok: сервер подтвердил админа, только тогда виден переключатель
 async function aiCall(path, body) {
@@ -656,6 +656,9 @@ function aiLiveLine() {
   return l.ai_on ? "включена" : "подтверждена · Smart Auto выключен";
 }
 const aiLiveTone = () => { const l = AIS.live; return aiLiveOk() && l.consent && l.gate && l.ai_on ? "up" : aiLiveOk() && l.consent ? "" : "dn"; };
+// Остановка новых входов движком (пауза администратора, подписка) — по последнему решению бота. Дневного лимита убытка у AI нет
+const aiStopNow = l => !!(l && l.ok && l.entry_stop && l.entry_stop.code);
+const aiStopText = e => `Новые входы AI остановлены: ${esc(e.why || "")}. Сигналы по-прежнему считаются, но ордера не отправляются. Открытые позиции бот ведёт как обычно.`;
 const aiDryText = d => (d.opens || []).map(o => esc(String(o.side || "").toUpperCase() + " " + String(o.sym || "").split("/")[0] + " на " + o.margin + " USDT")).join(", ");
 const aiDryNow = l => !!(l && l.dry && (l.dry.opens || []).length && !l.gate && l.consent && Date.now() / 1000 - (l.dry.t || 0) < 600);
 function aiLiveCard() {
@@ -678,9 +681,8 @@ function aiLiveCard() {
       : "Администратор ещё не выдал вашему аккаунту допуск к реальным ордерам KeelSteady AI (он отдельный от доступа к обычным реальным ботам)."} AI работает в проверочном режиме: решения считаются по ценам биржи, ордера не отправляются.</div>` : ""}
     ${l.blocked ? `<div class="warn">Новые входы приостановлены: ${esc(l.blocked)}. Стоп и тейк открытой позиции стоят на бирже, закрытия продолжаются.</div>` : ""}
     ${!l.licensed ? '<div class="warn">Подписка не активна: новые сделки не открываются. Открытые позиции бот ведёт до тейка или стопа (они стоят на бирже).</div>' : ""}
-    ${l.halt ? '<div class="warn">Дневной лимит убытка достигнут: новые входы — завтра (UTC).</div>' : ""}
+    ${aiStopNow(l) ? `<div class="warn">${aiStopText(l.entry_stop)}</div>` : ""}
     <div class="kv"><span>Результат сегодня</span>${aiPnl(l.pnl_day || 0)}</div><div class="kv"><span>Всего</span>${aiPnl(l.total || 0)}</div>
-    ${l.loss_limit ? `<div class="kv"><span>Дневной лимит убытка</span><b>${aiNum(l.loss_limit, 2)} USDT</b></div>` : ""}
     <div class="hint">Позиции AI на ${xn}</div>${pos || '<p class="muted">Открытых позиций AI нет.</p>'}${dry}
     <button class="ghost" data-ailive="0" style="margin-top:10px"${AIS.posting ? " disabled" : ""}>Отключить реальную торговлю на ${xn}</button>`;
   return `<div class="card"><h2>Реальная торговля · ${xn}</h2>${body}${AIS.liveMsg ? `<p class="muted" style="margin-top:6px">${esc(AIS.liveMsg)}</p>` : ""}</div>`;
@@ -949,7 +951,7 @@ function aiPanel() {
     <div class="kv"><span>Нереализованный PnL</span>${aiPnl(b.unrealized)}</div></div>`;
   const pnl = `<div class="card"><h2>PnL</h2><div class="kv"><span>Всего</span>${aiPnl(p.total)}</div><div class="kv"><span>Сегодня</span>${aiPnl(p.today)}</div>
     <div class="kv"><span>Закрыто сделок</span><b>${p.trades}</b></div><div class="kv"><span>Прибыльных</span><b>${p.win_rate == null ? "—" : p.win_rate + "%"}</b></div>
-    <div class="kv"><span>Комиссии</span><b>${money(p.fees)}</b></div>${d.daily_limit_hit ? '<div class="warn">Дневной лимит убытка достигнут: до конца дня (UTC) новых входов не будет.</div>' : ""}</div>`;
+    <div class="kv"><span>Комиссии</span><b>${money(p.fees)}</b></div></div>`;
   const pos = `<div class="card"><h2>Текущие позиции</h2>${d.positions.length ? d.positions.map(x => `<div class="sum"><div class="kv" style="margin-top:0"><span><b>${aiSym(x.sym)}</b> · ${aiSide(x.side)} ×${x.lev || d.leverage}</span>${aiPnl(x.upnl)}</div>
       <div class="kv"><span>Вход / цена</span><b>${aiPx(x.entry)} / ${aiPx(x.price)}</b></div><div class="kv"><span>Залог · ордера</span><b>${money(x.margin)} · ${x.filled} из ${x.orders}</b></div>
       <div class="kv"><span>Тейк / стоп</span><b>${aiPx(x.tp_px)} / ${aiPx(x.sl_px)}</b></div>
@@ -957,7 +959,7 @@ function aiPanel() {
       + `<button class="go red" data-aicloseall="1" style="margin-top:12px"${AIS.posting ? " disabled" : ""}>Принудительно закрыть все мои позиции</button>
       <p class="muted" style="margin-top:6px">Закрытие по рыночной цене сразу, без учёта сигналов, тейка и стопа. Касается только ваших позиций. После закрытия AI войдёт снова только по новому сигналу.</p>`
       : '<p class="muted">Открытых позиций нет.</p>'}</div>`;
-  const sig = `<div class="card"><h2>Сигналы AI</h2>${Object.keys(d.signals || {}).length ? Object.entries(d.signals).map(([k, v]) => `<div class="kv"><span><b>${aiSym(k)}</b> ${aiSide(v.side)}</span><b>${Math.round((v.confidence || 0) * 100)}% · ${v.allowed ? '<span class="up">вход разрешён</span>' : '<span class="muted">ждёт</span>'}</b></div>
+  const sig = `<div class="card"><h2>Сигналы AI</h2>${Object.keys(d.signals || {}).length ? Object.entries(d.signals).map(([k, v]) => `<div class="kv"><span><b>${aiSym(k)}</b> ${aiSide(v.side)}</span><b>${Math.round((v.confidence || 0) * 100)}% · ${v.allowed ? (aiLiveOk() && aiStopNow(AIS.live) && AIS.live.exchange === aiEx() ? '<span class="dn">подходит, но входы остановлены</span>' : '<span class="up">вход разрешён</span>') : '<span class="muted">ждёт</span>'}</b></div>
       <p class="muted" style="font-size:12px;margin-top:2px">${esc(v.reason || "")}${(d.paused || {})[k] ? " · пауза до " + aiWhen(d.paused[k]) : ""}</p>`).join("") : '<p class="muted">Сигналов пока нет: агент обновляет их раз в минуту.</p>'}</div>`;
   const hist = `<div class="card"><h2>История сделок</h2>${d.history.length ? d.history.slice(0, 15).map(h => `<div class="kv" style="gap:10px"><span>${aiSym(h.sym)} ${aiSide(h.side)} · ${h.why === "TP" ? "тейк" : h.why === "SL" ? "стоп" : h.why === "FORCE" ? "закрыта вручную" : esc(h.why)}<span class="muted" style="display:block;font-size:12px">${aiWhen(h.closed_at)} · ${aiPx(h.entry)} → ${aiPx(h.exit)}</span></span>${aiPnl(h.pnl)}</div>`).join("") : '<p class="muted">Закрытых сделок пока нет.</p>'}</div>`;
   const lim = d.limits || {};
@@ -1047,7 +1049,7 @@ document.addEventListener("click", e => {
   }
   else if (ds.aicancel) AIS.edit = null;
   else if (ds.aisave && AIS.edit) { const body = AIS.edit; AIS.edit = null; aiPost("/api/ai/settings", body, "Настройки сохранены."); return; }
-  else if (ds.aipreset) { aiPost("/api/ai/settings", {leverage: 1, grid_orders: 4, grid_overlap: 5, grid_offset: 1, take_profit: 4.5, stop_loss: 10, max_daily_loss: 3, min_confidence: .68}, "Вернул профиль «Умеренный»."); return; }
+  else if (ds.aipreset) { aiPost("/api/ai/settings", {leverage: 1, grid_orders: 4, grid_overlap: 5, grid_offset: 1, take_profit: 4.5, stop_loss: 10, min_confidence: .68}, "Вернул профиль «Умеренный»."); return; }
   else return;
   render();
 });
