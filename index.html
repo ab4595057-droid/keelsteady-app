@@ -656,17 +656,21 @@ function aiLiveLine() {
   return l.ai_on ? "включена" : "подтверждена · Smart Auto выключен";
 }
 const aiLiveTone = () => { const l = AIS.live; return aiLiveOk() && l.consent && l.gate && l.ai_on ? "up" : aiLiveOk() && l.consent ? "" : "dn"; };
+const aiDryText = d => (d.opens || []).map(o => esc(String(o.side || "").toUpperCase() + " " + String(o.sym || "").split("/")[0] + " на " + o.margin + " USDT")).join(", ");
+const aiDryNow = l => !!(l && l.dry && (l.dry.opens || []).length && !l.gate && l.consent && Date.now() / 1000 - (l.dry.t || 0) < 600);
 function aiLiveCard() {
   if (!AIS.live && !AIS.liveBusy && !AIS.liveErr) setTimeout(() => aiLiveLoad(true), 0);
   const ex = aiEx(), xn = aiExName(ex), l = AIS.live;
   if (!aiLiveOk()) return `<div class="card"><h2>Реальная торговля · ${xn}</h2><p class="muted">${esc(AIS.liveErr || "Читаю состояние с бота…")}</p></div>`;
   const pos = (l.positions || []).map(p => `<div class="kv"><span><b>${esc(String(p.symbol).split("/")[0])}</b> · ${aiSide(p.side)} ×${p.lev}</span><b>залог ${aiNum(p.margin, 2)} USDT · вход ${aiPx(p.entry || 0)}</b></div>`).join("");
-  const dry = l.dry && (l.dry.opens || []).length ? `<div class="sum" style="margin-top:8px">Проверочный режим, ${new Date(l.dry.t * 1000).toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"})}: AI открыл бы ${l.dry.opens.map(o => esc(o.side.toUpperCase() + " " + o.sym.split("/")[0] + " на " + o.margin + " USDT")).join(", ")}. Ордер не отправлен.</div>` : "";
+  // «AI открыл бы …» — решение проверочного режима. В главном блоке — только пока проверочный режим идёт сейчас
+  // (нет допуска) и запись свежая; иначе это история: она показывается в «Истории сделок AI» с датой
+  const dry = aiDryNow(l) ? `<div class="sum" style="margin-top:8px">Проверочный режим, ${new Date(l.dry.t * 1000).toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"})}: AI открыл бы ${aiDryText(l.dry)}. Ордер не отправлен.</div>` : "";
   let body;
   if (!l.connected) body = `<p class="muted">Подключите ключ ${xn} во вкладке «Биржа»: только права торговли фьючерсами, без вывода средств и переводов.</p>`;
   else if (!l.consent) body = `<p class="muted">AI будет открывать и закрывать сделки на вашем счёте ${xn} по вашим настройкам: монета, лимит маржи, плечо, направление, тейк и стоп. Это реальные деньги, возможен убыток. При подтверждении бот заново проверит ключ: без вывода и переводов, с правом фьючерсов${ex === "bybit" ? ", режим позиций One-way" : ""}.</p>
     <button class="go" data-ailive="1"${AIS.posting ? " disabled" : ""}>Включить реальную торговлю на ${xn}</button>`;
-  else body = `<div class="kv"><span>Подтверждено</span><b>${l.consent_at ? new Date(l.consent_at * 1000).toLocaleDateString("ru-RU") : "да"}</b></div>
+  else body = `<div class="kv"><span>Статус LIVE</span><b class="${aiLiveTone()}">${esc(aiLiveLine())}</b></div><div class="kv"><span>Подтверждено</span><b>${l.consent_at ? new Date(l.consent_at * 1000).toLocaleDateString("ru-RU") : "да"}</b></div>
     ${l.hold && l.managing ? `<div class="warn">Новые входы и докупки остановлены: ${esc(l.hold)}. Открытая позиция AI сопровождается до закрытия: сверка с биржей, стоп и тейк на бирже. Закрыть сразу — «Принудительно закрыть» в карточке счёта.</div>` : ""}
     ${!l.gate && !l.managing ? `<div class="warn">${l.denied ? "Администратор запретил вашему аккаунту реальную торговлю (/deny): реальных ордеров AI нет."
       : l.self_serve ? "Реальная торговля KeelSteady AI для вашего аккаунта приостановлена администратором." + (l.is_admin ? ` Возобновить: /ailive ${esc(String(l.uid || ""))} on` : "")
@@ -684,7 +688,8 @@ function aiLiveCard() {
 function aiHistCard() {
   const l = AIS.live, h = aiLiveOk() ? (l.history || []) : [];
   const kind = {op: "вход", add: "докупка", cl: "закрытие", pt: "частичное закрытие"};
-  return `<div class="card"><h2>История сделок AI · ${aiExName(aiEx())}</h2>${h.length ? h.slice().reverse().slice(0, 15).map(r => `<div class="kv" style="gap:10px"><span>${esc(r[0] || "")} · <b>${esc(r[1] || "")}</b> ${aiSide(r[7])} ×${r[6]} · ${esc(kind[r[2]] || r[2] || "")}</span>${r[5] == null ? `<b>${aiNum(r[3] || 0, 2)} USDT</b>` : aiPnl(r[5])}</div>`).join("") : '<p class="muted">Сделок AI на этой бирже пока нет.</p>'}</div>`;
+  const dr = aiLiveOk() && l.dry && (l.dry.opens || []).length && !aiDryNow(l) ? `<div class="hint" style="margin-top:8px">Проверочный режим (запись из истории): ${new Date(l.dry.t * 1000).toLocaleString("ru-RU", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})} AI открыл бы ${aiDryText(l.dry)}. Ордер не отправлялся, позиции на бирже не было.</div>` : "";
+  return `<div class="card"><h2>История сделок AI · ${aiExName(aiEx())}</h2>${dr}${h.length ? h.slice().reverse().slice(0, 15).map(r => `<div class="kv" style="gap:10px"><span>${esc(r[0] || "")} · <b>${esc(r[1] || "")}</b> ${aiSide(r[7])} ×${r[6]} · ${esc(kind[r[2]] || r[2] || "")}</span>${r[5] == null ? `<b>${aiNum(r[3] || 0, 2)} USDT</b>` : aiPnl(r[5])}</div>`).join("") : '<p class="muted">Сделок AI на этой бирже пока нет.</p>'}</div>`;
 }
 const AI_LEV_MAX = 50;   // плечо AI: целое от ×1 до ×50 (и не выше, чем разрешает биржа для монеты)
 function aiAccountCard(d) {
